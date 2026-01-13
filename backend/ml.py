@@ -1,17 +1,25 @@
-import numpy as np
-from sklearn.ensemble import IsolationForest
+import pandas as pd
+import os
 
-model = IsolationForest(contamination=0.1, random_state=42)
+DATASET = "backend/dataset.csv"
 
-# Fake training data (normal traffic baseline)
-X_train = np.array([
-    [10, 80], [12, 443], [15, 53], [20, 22],
-    [11, 80], [14, 443]
-])
+def init_dataset():
+    if not os.path.exists(DATASET):
+        with open(DATASET, "w") as f:
+            f.write("timestamp,ip,mac,packet_rate,port_count,unique_ports,scan_score,label\n")
 
-model.fit(X_train)
+def calculate_score(packet_rate, unique_ports):
+    score = 0
+    if packet_rate > 50:
+        score += 2
+    if unique_ports > 10:
+        score += 3
+    return score
 
-def score(flow_rate, port):
-    X = np.array([[flow_rate, port]])
-    s = model.decision_function(X)[0]
-    return "HIGH" if s < -0.1 else "LOW"
+def log_event(row):
+    with open(DATASET, "a") as f:
+        f.write(",".join(map(str, row)) + "\n")
+
+def is_anomalous(packet_rate, unique_ports):
+    score = calculate_score(packet_rate, unique_ports)
+    return score >= 4, score

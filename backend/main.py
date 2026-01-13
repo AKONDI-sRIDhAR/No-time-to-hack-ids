@@ -1,11 +1,19 @@
-from fastapi import FastAPI
-import threading
-from ids import start_ids, alerts
+import time
+from ids import start_ids
+from response import deploy_honeypot, isolate
+from ml import init_dataset
 
-app = FastAPI()
+init_dataset()
 
-@app.get("/alerts")
-def get_alerts():
-    return alerts[-10:]
+print("[+] NO TIME TO HACK – Autonomous IDS Started")
 
-threading.Thread(target=start_ids, daemon=True).start()
+while True:
+    attacker = start_ids()
+
+    if attacker:
+        print(f"[!] Threat detected from {attacker}")
+        deploy_honeypot(attacker)
+        isolate(attacker)
+        print("[+] Honeypot deployed + attacker isolated")
+
+    time.sleep(5)
