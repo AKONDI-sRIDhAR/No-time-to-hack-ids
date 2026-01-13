@@ -1,29 +1,87 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>NO TIME TO HACK</title>
   <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
+
 <body>
-  <header>
-    <h1>NO TIME TO HACK</h1>
-    <span>AUTONOMOUS IOT DEFENSE SYSTEM</span>
-    <div class="status">● LOCKDOWN</div>
-  </header>
+  <div class="container">
+    <header>
+      <div class="header-left">
+        <h1>NO TIME TO HACK</h1>
+        <span class="subtitle">AUTONOMOUS IOT DEFENSE SYSTEM</span>
+      </div>
+      <div class="status-box" id="system-status">● NORMAL</div>
+    </header>
 
-  <section class="grid">
-    <div class="panel left">
-      <button>Simulate Network Attack</button>
-      <button class="danger">Activate Doomsday Protocol</button>
-      <button>Reset System</button>
-    </div>
+    <main class="grid-layout">
+      <!-- Controls -->
+      <section class="panel control-panel">
+        <h2>COMMAND & CONTROL</h2>
+        <button class="btn danger" onclick="activateDoomsday()">⚠ ACTIVATE DOOMSDAY PROTOCOL</button>
+      </section>
 
-    <div class="panel center">
-      <h2>Agent Intelligence Stream</h2>
-      <pre id="alerts"></pre>
-    </div>
-  </section>
+      <!-- Status -->
+      <section class="panel status-panel">
+        <h2>SYSTEM HEALTH</h2>
+        <div id="health-metrics">
+          <div class="metric">
+            <span class="label">IDS ENGINE</span>
+            <span class="value ok">ONLINE</span>
+          </div>
+          <div class="metric">
+            <span class="label">HONEYPOT</span>
+            <span class="value ok">ACTIVE (8080)</span>
+          </div>
+          <div class="metric">
+            <span class="label">THREATS ISOLATED</span>
+            <span class="value" id="threat-count">0</span>
+          </div>
+        </div>
+      </section>
 
-<script src="app.js"></script>
+      <!-- Intelligence Stream (Alerts) -->
+      <section class="panel stream-panel">
+        <h2>AGENT INTELLIGENCE STREAM</h2>
+        <div class="log-window" id="alerts-log">
+          <!-- JS will populate -->
+        </div>
+      </section>
+
+      <!-- Deception Grid (Honeypot Logs) -->
+      <section class="panel deception-panel">
+        <h2>DECEPTION GRID // CAPTURES</h2>
+        <div class="table-container">
+          <table id="honeypot-table">
+            <thead>
+              <tr>
+                <th>TIME</th>
+                <th>ATTACKER IP</th>
+                <th>CREDENTIALS</th>
+                <th>USER AGENT</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- JS will populate -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Real-Time Asset Monitoring -->
+      <section class="panel assets-panel">
+        <h2>REAL-TIME ASSET MONITORING</h2>
+        <div class="assets-grid" id="devices-list">
+          <!-- JS will populate -->
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
 </body>
+
 </html>
