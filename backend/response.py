@@ -1,28 +1,52 @@
 import subprocess
-import time
+import os
 
-HONEYPOT_PORT = "8080"
+HONEYPOT_SSH = "2222"
+HONEYPOT_HTTP = "8080"
+HONEYPOT_SMB = "4445"
 
 def run_cmd(cmd):
     """
-    Run shell commands safely
+    Run shell commands safely, ignoring errors on Windows.
     """
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if os.name == 'nt':
+        print(f"[WINDOWS SIMULATION] Executing: {' '.join(cmd)}")
+        return
+
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[RESPONSE] Command failed: {e}")
 
 def deploy_honeypot(attacker_ip):
     """
-    Redirect ALL attacker TCP traffic to honeypot port 8080
+    Redirect attacker traffic to Docker Honeypot ports
     """
-    print(f"[RESPONSE] Redirecting {attacker_ip} to honeypot")
+    print(f"[RESPONSE] Redirecting {attacker_ip} to Honeypot Grid")
 
+    # SSH -> 2222
     run_cmd([
         "iptables", "-t", "nat", "-A", "PREROUTING",
-        "-s", attacker_ip,
-        "-p", "tcp",
-        "--dport", "1:65535",
-        "-j", "REDIRECT",
-        "--to-port", HONEYPOT_PORT
+        "-s", attacker_ip, "-p", "tcp", "--dport", "22",
+        "-j", "REDIRECT", "--to-port", HONEYPOT_SSH
     ])
+    
+    # HTTP -> 8080
+    run_cmd([
+        "iptables", "-t", "nat", "-A", "PREROUTING",
+        "-s", attacker_ip, "-p", "tcp", "--dport", "80",
+        "-j", "REDIRECT", "--to-port", HONEYPOT_HTTP
+    ])
+
+    # SMB -> 4445
+    run_cmd([
+        "iptables", "-t", "nat", "-A", "PREROUTING",
+        "-s", attacker_ip, "-p", "tcp", "--dport", "445",
+        "-j", "REDIRECT", "--to-port", HONEYPOT_SMB
+    ])
+    
+    # Catch-all? Redirect other high ports to HTTP?
+    # For now, we only trap specific services to limit noise.
 
 def isolate_attacker(attacker_ip):
     """
@@ -38,5 +62,7 @@ def lockdown_network():
     Emergency lockdown – block all forwarding except gateway
     """
     print("[RESPONSE] NETWORK LOCKDOWN ACTIVATED")
-
     run_cmd(["iptables", "-P", "FORWARD", "DROP"])
+    
+# Alias
+isolate = isolate_attacker
