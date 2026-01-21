@@ -53,12 +53,16 @@ class Brain:
             explanation.append("Port Scan Detected")
 
         # 2. ML Validation
-        if self.is_fitted:
-            # IsolationForest returns -1 for anomaly, 1 for normal
-            pred = self.model.predict([[packet_rate, unique_ports]])[0]
-            if pred == -1:
-                score += 30
-                explanation.append("ML Anomaly Detected")
+	if self.is_fitted:
+		X_test = pd.DataFrame(
+        		[[packet_rate, unique_ports]],
+        		columns=["packet_rate", "unique_ports"]
+    		)
+
+    		pred = self.model.predict(X_test)[0]
+    		if pred == -1:
+        		score += 30
+        		explanation.append("ML Anomaly Detected")
 
         is_anomalous = score >= 50
         return is_anomalous, f"{score} ({', '.join(explanation)})"

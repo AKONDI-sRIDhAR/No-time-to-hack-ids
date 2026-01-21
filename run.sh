@@ -25,7 +25,7 @@ echo "[✓] Docker is running"
 # ---- 2. VERIFY HONEYPOT CONTAINERS ----
 echo "[+] Verifying deception layer..."
 
-REQUIRED_CONTAINERS=("cowrie-hp" "http-hp" "smb-hp")
+REQUIRED_CONTAINERS=("ntth-device" "http-hp" "smb-honeypot")
 MISSING=0
 
 for c in "${REQUIRED_CONTAINERS[@]}"; do
@@ -41,11 +41,6 @@ if [ $MISSING -eq 1 ]; then
     echo ""
     echo "[-] Deception layer incomplete."
     echo "[-] Start honeypots FIRST, then rerun ./run.sh"
-    echo ""
-    echo "Required commands:"
-    echo "  docker run -d --name cowrie-hp -p 2222:2222 cowrie/cowrie"
-    echo "  docker run -d --name http-hp   -p 8080:80   nginx"
-    echo "  docker run -d --name smb-hp    -p 445:445  dinotools/dionaea"
     exit 1
 fi
 
@@ -54,6 +49,17 @@ echo "[✓] All honeypots active"
 # ---- 3. START IDS BACKEND (AI BRAIN) ----
 echo "[+] Starting IDS brain..."
 cd "$BASE_DIR/backend"
+
+# ---- VIRTUAL ENV FIX (THIS IS THE KEY PART) ----
+if [ ! -d "venv" ]; then
+    echo "[+] Creating virtual environment..."
+    python3 -m venv venv
+fi
+
+source venv/bin/activate
+
+echo "[+] Ensuring Python dependencies..."
+pip install --quiet flask flask-cors
 
 # Dataset
 mkdir -p data
@@ -64,7 +70,9 @@ if [ ! -f "$IDS_CSV" ]; then
   echo "[+] Created IDS dataset"
 fi
 
-python3 main.py &
+# IMPORTANT: use `python`, not `python3`
+export FLASK_ENC=production
+python main.py &
 IDS_PID=$!
 
 # ---- 4. START DASHBOARD ----
