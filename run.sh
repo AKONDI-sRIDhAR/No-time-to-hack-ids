@@ -1,51 +1,80 @@
 #!/bin/bash
+set -e
 
-# Safe startup script for NO TIME TO HACK
+echo "========================================="
+echo " NO TIME TO HACK :: AUTONOMOUS IDS START "
+echo "========================================="
 
-echo "========================================"
-echo "   NO TIME TO HACK // AUTONOMOUS IDS    "
-echo "========================================"
-
-# Check Root
-if [ "$(id -u)" != "0" ]; then
-   echo "❌ ERROR: This system requires ROOT privileges."
-   echo "   Please run with sudo: sudo ./run.sh"
-   exit 1
+# ---- SAFETY CHECK ----
+if [[ $EUID -ne 0 ]]; then
+  echo "[-] Run as root: sudo ./run.sh"
+  exit 1
 fi
 
-# Check Python 3
-if ! command -v python3 &> /dev/null; then
-    echo "❌ ERROR: Python 3 could not be found."
-    exit 1
-fi
+BASE_DIR=$(pwd)
 
-# Check Docker
-if ! command -v docker &> /dev/null; then
-    echo "❌ ERROR: Docker is not installed."
-    echo "   Please install: sudo apt-get install docker.io"
-    exit 1
-fi
-
-# Check Docker Service
+# ---- 1. ENSURE DOCKER IS RUNNING ----
+echo "[+] Checking Docker service..."
 if ! systemctl is-active --quiet docker; then
-    echo "[!] Starting Docker service..."
+    echo "[!] Docker not running. Starting..."
     systemctl start docker
+    sleep 3
 fi
 
-# Dependency Check (Simple)
-echo "[*] checking dependencies..."
-if ! pip3 freeze | grep -q "scapy"; then
-    echo "[!] Installing dependencies..."
-    pip3 install -r backend/requirements.txt
+# ---- 2. ENSURE HONEYPOT IMAGE EXISTS ----
+if ! docker images | grep -q ntth-honeypot; then
+    echo "[-] Honeypot image not found. Build it first:"
+    echo "    docker build -t ntth-honeypot:v1 ."
+    exit 1
 fi
 
-# Set Permissions
-chmod +x backend/*.py
+# ---- 3. START / RESTART HONEYPOT CONTAINER ----
+echo "[+] Deploying deception honeypot..."
+docker rm -f ntth-device >/dev/null 2>&1 || true
 
-# Export Python Path just in case
-export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+docker run -d \
+  --name ntth-device \
+  -p 22:2222 \
+  -p 80:8080 \
+  -p 445:4445 \
+  ntth-honeypot:v1
 
-# Start Main Orchestrator
-echo "[+] Starting System Core..."
-cd backend
-python3 main.py
+echo "[+] Honeypot running (SSH/HTTP/SMB exposed)"
+
+# ---- 4. START IDS BACKEND (AI BRAIN) ----
+echo "[+] Starting IDS brain..."
+cd "$BASE_DIR/backend"
+
+source venv/bin/activate
+
+# Ensure dataset exists
+mkdir -p data
+IDS_CSV="data/behavior.csv"
+
+if [ ! -f "$IDS_CSV" ]; then
+  echo "timestamp,ip,mac,packet_rate,port_count,unique_ports,scan_score,label" > "$IDS_CSV"
+  echo "[+] Created IDS dataset"
+fi
+
+python main.py &
+IDS_PID=$!
+
+# ---- 5. START DASHBOARD ----
+echo "[+] Starting dashboard..."
+cd "$BASE_DIR/frontend"
+python3 -m http.server 5050 >/dev/null 2>&1 &
+UI_PID=$!
+
+# ---- STATUS ----
+echo ""
+echo "========================================="
+echo " SYSTEM STATUS: LIVE"
+echo "-----------------------------------------"
+echo " Gateway IP      : 192.168.10.1"
+echo " Dashboard       : http://192.168.10.1:5050"
+echo " Honeypot Ports  : 22 / 80 / 445"
+echo " IDS Dataset     : backend/data/behavior.csv"
+echo "========================================="
+echo ""
+
+wait $IDS_PID
