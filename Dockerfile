@@ -1,38 +1,29 @@
-# Use a lightweight Python base (Updated to bookworm to fix apt-get 404 errors)
-FROM python:3.9-slim-bookworm
+FROM python:3.9-slim
 
-# Install system dependencies including those for SMB/HTTP emulation
-# The backslashes (\) at the end of lines are MANDATORY for multiline commands
-RUN apt-get update && apt-get install -y \
-    libssl-dev \
-    libffi-dev \
-    build-essential \
+RUN apt update && apt install -y \
     git \
-    authbind \
+    openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
-# Create user NTTH
-RUN adduser --disabled-password --gecos "" ntth
+# Create cowrie user
+RUN useradd -m cowrie
 
-# Install Cowrie (Handles SSH and Telnet)
-USER ntth
-WORKDIR /home/ntth
-
-# Corrected git clone command - purely the URL, no markdown syntax
+# Clone cowrie
+WORKDIR /opt
 RUN git clone https://github.com/cowrie/cowrie.git
 
-WORKDIR /home/ntth/cowrie
+# Install cowrie deps
+WORKDIR /opt/cowrie
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Create default config
+RUN cp etc/cowrie.cfg.dist etc/cowrie.cfg
 
-# Copy default config and set hostname to NTTH-Device
-RUN cp etc/userdb.example etc/userdb.txt && \
-    cp etc/cowrie.cfg.dist etc/cowrie.cfg && \
-    sed -i 's/hostname = .*/hostname = NTTH-Computer/' etc/cowrie.cfg
+# Fix permissions
+RUN chown -R cowrie:cowrie /opt/cowrie
 
-# Expose internal ports (2222:SSH, 8080:HTTP, 4445:SMB)
+USER cowrie
+
 EXPOSE 2222 8080 4445
 
-# Start command
-CMD ["python", "bin/cowrie", "start", "-n"]
+CMD ["/opt/cowrie/bin/cowrie", "start", "-n"]
