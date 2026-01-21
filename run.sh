@@ -20,34 +20,42 @@ if ! systemctl is-active --quiet docker; then
     systemctl start docker
     sleep 3
 fi
+echo "[✓] Docker is running"
 
-# ---- 2. ENSURE HONEYPOT IMAGE EXISTS ----
-if ! docker images | grep -q ntth-honeypot; then
-    echo "[-] Honeypot image not found. Build it first:"
-    echo "    docker build -t ntth-honeypot:v1 ."
+# ---- 2. VERIFY HONEYPOT CONTAINERS ----
+echo "[+] Verifying deception layer..."
+
+REQUIRED_CONTAINERS=("cowrie-hp" "http-hp" "smb-hp")
+MISSING=0
+
+for c in "${REQUIRED_CONTAINERS[@]}"; do
+    if docker ps --format '{{.Names}}' | grep -q "^$c$"; then
+        echo "[✓] $c is running"
+    else
+        echo "[-] $c is NOT running"
+        MISSING=1
+    fi
+done
+
+if [ $MISSING -eq 1 ]; then
+    echo ""
+    echo "[-] Deception layer incomplete."
+    echo "[-] Start honeypots FIRST, then rerun ./run.sh"
+    echo ""
+    echo "Required commands:"
+    echo "  docker run -d --name cowrie-hp -p 2222:2222 cowrie/cowrie"
+    echo "  docker run -d --name http-hp   -p 8080:80   nginx"
+    echo "  docker run -d --name smb-hp    -p 445:445  dinotools/dionaea"
     exit 1
 fi
 
-# ---- 3. START / RESTART HONEYPOT CONTAINER ----
-echo "[+] Deploying deception honeypot..."
-docker rm -f ntth-device >/dev/null 2>&1 || true
+echo "[✓] All honeypots active"
 
-docker run -d \
-  --name ntth-device \
-  -p 22:2222 \
-  -p 80:8080 \
-  -p 445:4445 \
-  ntth-honeypot:v1
-
-echo "[+] Honeypot running (SSH/HTTP/SMB exposed)"
-
-# ---- 4. START IDS BACKEND (AI BRAIN) ----
+# ---- 3. START IDS BACKEND (AI BRAIN) ----
 echo "[+] Starting IDS brain..."
 cd "$BASE_DIR/backend"
 
-source venv/bin/activate
-
-# Ensure dataset exists
+# Dataset
 mkdir -p data
 IDS_CSV="data/behavior.csv"
 
@@ -56,10 +64,10 @@ if [ ! -f "$IDS_CSV" ]; then
   echo "[+] Created IDS dataset"
 fi
 
-python main.py &
+python3 main.py &
 IDS_PID=$!
 
-# ---- 5. START DASHBOARD ----
+# ---- 4. START DASHBOARD ----
 echo "[+] Starting dashboard..."
 cd "$BASE_DIR/frontend"
 python3 -m http.server 5050 >/dev/null 2>&1 &
@@ -72,7 +80,9 @@ echo " SYSTEM STATUS: LIVE"
 echo "-----------------------------------------"
 echo " Gateway IP      : 192.168.10.1"
 echo " Dashboard       : http://192.168.10.1:5050"
-echo " Honeypot Ports  : 22 / 80 / 445"
+echo " SSH Honeypot    : 2222 (Cowrie)"
+echo " HTTP Decoy      : 8080"
+echo " SMB Honeypot    : 445"
 echo " IDS Dataset     : backend/data/behavior.csv"
 echo "========================================="
 echo ""

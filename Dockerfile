@@ -1,29 +1,36 @@
 FROM python:3.9-slim
 
-RUN apt update && apt install -y \
+RUN apt-get update && apt-get install -y \
     git \
-    openssh-server \
-    && rm -rf /var/lib/apt/lists/*
+    iproute2 \
+    net-tools \
+    procps \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# Create cowrie user
-RUN useradd -m cowrie
+RUN useradd -m -s /bin/bash ntth
 
-# Clone cowrie
-WORKDIR /opt
+WORKDIR /home/ntth
 RUN git clone https://github.com/cowrie/cowrie.git
 
-# Install cowrie deps
-WORKDIR /opt/cowrie
+WORKDIR /home/ntth/cowrie
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create default config
+# Runtime directories REQUIRED by Cowrie
+RUN mkdir -p var/log/cowrie \
+             var/lib/cowrie \
+             var/run/cowrie
+
 RUN cp etc/cowrie.cfg.dist etc/cowrie.cfg
 
-# Fix permissions
-RUN chown -R cowrie:cowrie /opt/cowrie
+# Listen on all interfaces
+RUN sed -i 's/^# listen_endpoints/listen_endpoints/' etc/cowrie.cfg && \
+    sed -i 's/127.0.0.1/0.0.0.0/' etc/cowrie.cfg
 
-USER cowrie
+RUN chown -R ntth:ntth /home/ntth/cowrie
 
-EXPOSE 2222 8080 4445
+USER ntth
+EXPOSE 2222
 
-CMD ["/opt/cowrie/bin/cowrie", "start", "-n"]
+CMD ["bin/cowrie", "start", "-n"]
