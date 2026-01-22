@@ -26,63 +26,58 @@ SYSTEM_STATE = {
 def system_loop():
     """Background thread for IDS and Honeypot management."""
     print("[MAIN] System Loop Started")
-    
-    # 1. Ensure Honeypot Active
-    if os.name != 'nt': # Only on Linux/Docker host
-        docker_honeypot.ensure_image_built()
-        docker_honeypot.start_honeypot()
-    
+
+    # 1. Ensure Honeypot Active (LINUX ONLY)
+    if os.name != "nt":
+        try:
+            docker_honeypot.ensure_image_built()
+            docker_honeypot.start_honeypot()
+        except Exception as e:
+            print(f"[MAIN] Honeypot startup error: {e}")
+
     while True:
         try:
             # 2. IDS Cycle
             threats, active_devices = start_ids_cycle(timeout=5)
-            
-            # Sync Devices
+
             SYSTEM_STATE["devices"] = active_devices
-            
-            # Handle Threats
+
             if threats:
                 for ip in threats:
-                    # Deduplicate alerts
-                    # (Simple check: don't alert same IP twice in 30s? For now, we alert every time logic triggers)
-                    timestamp = time.strftime("%H:%M:%S")
                     alert = {
-                        "timestamp": timestamp,
+                        "timestamp": time.strftime("%H:%M:%S"),
                         "ip": ip,
                         "type": "Behavioral Anomaly",
                         "action": "Redirecting to Honeypot"
                     }
                     SYSTEM_STATE["alerts"].insert(0, alert)
                     SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
-                    
+
                     print(f"[MAIN] Threat Detected: {ip}")
-                    
-                    # RESPONSE: Redirect to Docker Honeypot
+
                     deploy_honeypot(ip)
-                    # We do NOT isolate immediately anymore ("Deception-based response")
-                    # Unless it's repeat offender? 
-                    # Prompt says: "Redirect attacker traffic ... Then isolate attacker if needed"
-                    # For now, we redirect.
-            
+
             # 3. Harvest Honeypot Logs
-            if os.name != 'nt':
-                docker_honeypot.parse_logs()
-                    
+            if os.name != "nt":
+                try:
+                    docker_honeypot.parse_logs()
+                except Exception:
+                    pass
+
         except Exception as e:
             print(f"[MAIN] Loop Error: {e}")
-        
+
         time.sleep(1)
 
 def load_honeypot_logs():
-    """Reads honeypot.csv parsed."""
     csv_path = os.path.join(DATA_DIR, "honeypot.csv")
     logs = []
+
     if os.path.exists(csv_path):
         try:
             with open(csv_path, "r") as f:
-                lines = f.readlines()[1:] # Skip header
+                lines = f.readlines()[1:]
                 for line in lines:
-                    # timestamp,source_ip,service,username,password,command,raw_log
                     parts = line.strip().split(",")
                     if len(parts) >= 7:
                         logs.insert(0, {
@@ -90,13 +85,14 @@ def load_honeypot_logs():
                             "ip": parts[1],
                             "service": parts[2],
                             "credential": f"{parts[3]}:{parts[4]}",
-                            "ua": parts[5] # command
+                            "ua": parts[5]
                         })
-        except:
+        except Exception:
             pass
+
     return logs[:20]
 
-# --- API Routes ---
+# ---- ROUTES ----
 
 @app.route("/")
 def index():
@@ -116,12 +112,11 @@ def get_devices():
 
 @app.route("/api/alerts")
 def get_alerts():
-    return jsonify(SYSTEM_STATE["alerts"])
+    return jsonify(SYSTEM_STATE["alerts"]})
 
 @app.route("/api/honeypot")
 def get_honeypot_logs():
-    logs = load_honeypot_logs()
-    return jsonify(logs)
+    return jsonify(load_honeypot_logs())
 
 @app.route("/api/doomsday", methods=["POST"])
 def activate_doomsday():
@@ -137,13 +132,8 @@ def activate_doomsday():
 
 if __name__ == "__main__":
     print("[+] NO TIME TO HACK – Autonomous System Starting...")
-    
-    # Start System Loop (IDS + Docker Control)
+
     t = threading.Thread(target=system_loop, daemon=True)
     t.start()
-    
-    # Start Web Server
-    try:
-        app.run(host="0.0.0.0", port=5000)
-    except Exception as e:
-        print(f"Flask Error: {e}")
+
+    app.run(host="0.0.0.0", port=5000)
