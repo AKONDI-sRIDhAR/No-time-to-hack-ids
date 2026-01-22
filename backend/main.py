@@ -112,7 +112,7 @@ def get_devices():
 
 @app.route("/api/alerts")
 def get_alerts():
-    return jsonify(SYSTEM_STATE["alerts"]})
+    return jsonify(SYSTEM_STATE["alerts"])
 
 @app.route("/api/honeypot")
 def get_honeypot_logs():
