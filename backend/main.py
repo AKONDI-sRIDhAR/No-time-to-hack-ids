@@ -32,16 +32,34 @@ def system_loop():
             threats, active_devices = start_ids_cycle(timeout=5)
             SYSTEM_STATE["devices"] = active_devices
 
-            for ip in threats:
-                alert = {
-                    "timestamp": time.strftime("%H:%M:%S"),
-                    "ip": ip,
-                    "type": "Behavioral Anomaly",
-                    "action": "Redirecting to Honeypot"
-                }
-                SYSTEM_STATE["alerts"].insert(0, alert)
-                SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
-                deploy_honeypot(ip)
+            # Handle Threats with Protection Ladder
+            if threats:
+                for threat in threats:
+                    ip = threat["ip"]
+                    score = threat["score"]
+                    
+                    # Level 2: Deceive (Always for threats)
+                    # We redirect to honeypot to observe behavior
+                    deploy_honeypot(ip)
+                    action_msg = "Redirecting to Honeypot"
+
+                    # Level 3: Contain (High Severity)
+                    # If ML score indicates high confidence/severity (>80), we isolate.
+                    # This prevents the attacker from laterally moving while trapped in honeypot.
+                    if score >= 80:
+                         isolate(ip)
+                         action_msg = "ISOLATED & Redirected"
+
+                    alert = {
+                        "timestamp": time.strftime("%H:%M:%S"),
+                        "ip": ip,
+                        "type": f"Behavioral Anomaly (Score: {score})",
+                        "action": action_msg
+                    }
+                    
+                    SYSTEM_STATE["alerts"].insert(0, alert)
+                    SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
+                    print(f"[MAIN] Protection Level Active: {action_msg} for {ip}")
 
             docker_honeypot.parse_logs()
         except Exception as e:
