@@ -4,7 +4,7 @@ An autonomous Intrusion Detection System (IDS) and Deception System designed for
 
 ## 🚀 Features
 
-*   **Autonomous Operation:** No human intervention needed.
+*   **Autonomous Operation:** No human intervention need.
 *   **Real-Time IDS:** Detects Nmap scans, packet floods, anomalous ports.
 *   **Behavioral ML:** Learns device behavior over time (Unsupervised Anomaly Detection).
 *   **Docker Deception Grid:** Instantly spins up a honeypot (Cowrie++) pretending to be a vulnerable IoT device.
