@@ -32,7 +32,7 @@ Follow the below steps exactly to demonstrate the system's capabilities.
 
 ### 1. Boot & Network Setup
 *   Ensure Kali Linux is running.
-*   Run the AP Mode script (if using Wi-Fi AP):
+*   Run the AP Mode script:
     ```bash
     sudo ./apmode.sh
     ```
