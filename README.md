@@ -36,7 +36,6 @@ Follow the below steps exactly to demonstrate the system's capabilities.
     ```bash
     sudo ./apmode.sh
     ```
-    *(Note: Connect your IoT devices and "Attacker" device to this Access Point)*
 
 ### 2. Start the Autonomous System
 *   Run the main system script:
