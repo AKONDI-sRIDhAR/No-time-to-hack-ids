@@ -28,7 +28,7 @@ chmod +x run.sh
 
 ## 🧪 Demonstration Flow (How to Demo)
 
-Follow these steps exactly to demonstrate the system's capabilities.
+Follow the below steps exactly to demonstrate the system's capabilities.
 
 ### 1. Boot & Network Setup
 *   Ensure Kali Linux is running.
