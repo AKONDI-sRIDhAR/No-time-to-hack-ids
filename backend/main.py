@@ -26,6 +26,8 @@ def system_loop():
 
     if os.name != "nt":
         docker_honeypot.start_honeypot()
+        import decoys
+        decoys.start_decoys()
 
     while True:
         try:
@@ -36,30 +38,45 @@ def system_loop():
             if threats:
                 for threat in threats:
                     ip = threat["ip"]
-                    score = threat["score"]
+                    try:
+                        score = threat["score"]     # ML Anomaly Score
+                        trust = threat["trust"]     # Trust Score
+                        flags = threat["flags"]     # Protection Flags
+                    except KeyError:
+                        # Fallback for transient state
+                        score, trust, flags = 0, 50, {}
                     
-                    # Level 2: Deceive (Always for threats)
-                    # We redirect to honeypot to observe behavior
-                    deploy_honeypot(ip)
-                    action_msg = "Redirecting to Honeypot"
-
-                    # Level 3: Contain (High Severity)
-                    # If ML score indicates high confidence/severity (>80), we isolate.
-                    # This prevents the attacker from laterally moving while trapped in honeypot.
-                    if score >= 80:
-                         isolate(ip)
-                         action_msg = "ISOLATED & Redirected"
-
-                    alert = {
-                        "timestamp": time.strftime("%H:%M:%S"),
-                        "ip": ip,
-                        "type": f"Behavioral Anomaly (Score: {score})",
-                        "action": action_msg
-                    }
+                    action_msg = "Monitoring"
                     
-                    SYSTEM_STATE["alerts"].insert(0, alert)
-                    SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
-                    print(f"[MAIN] Protection Level Active: {action_msg} for {ip}")
+                    # Level 2: Deceive (Redirected Flag)
+                    if flags.get("redirected", False):
+                        deploy_honeypot(ip)
+                        action_msg = "Redirecting to Honeypot"
+                        
+                    # Level 3: Contain (Isolated Flag)
+                    if flags.get("isolated", False):
+                        isolate(ip)
+                        action_msg = "ISOLATED & Redirected"
+
+                    # 1️⃣3️⃣ ML Explainability Layer Integration
+                    explanation = threat.get("reason", "Unknown Anomaly")
+                    if "correlation" in threat:
+                        explanation += f" | {threat['correlation']}"
+
+                    # Only alert if something interesting is happening
+                    if flags.get("redirected") or score > 50:
+                        alert = {
+                            "timestamp": time.strftime("%H:%M:%S"),
+                            "ip": ip,
+                            "type": f"Trust: {trust} | {explanation}", # Richer Type/Reason
+                            "action": action_msg
+                        }
+                        
+                        # Dedupe alerts slightly (simple check)
+                        if not SYSTEM_STATE["alerts"] or SYSTEM_STATE["alerts"][0]["type"] != alert["type"] or SYSTEM_STATE["alerts"][0]["ip"] != ip:
+                            SYSTEM_STATE["alerts"].insert(0, alert)
+                            SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
+                            print(f"[MAIN] Protection Active: {action_msg} for {ip} (Reason: {explanation})")
 
             docker_honeypot.parse_logs()
         except Exception as e:
@@ -107,6 +124,46 @@ def doomsday():
     SYSTEM_STATE["status"] = "LOCKDOWN"
     lockdown_network()
     return jsonify({"status": "LOCKDOWN"})
+
+@app.route("/api/action/<action>/<ip>", methods=["POST"])
+def manual_action(action, ip):
+    print(f"[API] Manual Action: {action} on {ip}")
+    
+    # Locate device in state (optional, but good for validation)
+    # Actually, we need to update the flags in 'ids.known_devices' but that's in another module's scope.
+    # ids.known_devices is global in ids.py. We need to access it.
+    from ids import known_devices, save_devices
+    
+    if ip not in known_devices:
+        return jsonify({"error": "Device not found"}), 404
+        
+    info = known_devices[ip]
+    
+    if action == "isolate":
+        isolate(ip)
+        info["flags"]["isolated"] = True
+        info["trust_score"] = 0
+    elif action == "release":
+        # Remove iptables rules? existing 'response.py' only has DROP/REDIRECT additions.
+        # We need a 'release' function in response.py ideally, but for now we reset flags.
+        # Real iptables cleanup is complex without a tracking chain.
+        # For prototype: We assume a flush or manual cleanup, or we add 'release_attacker' to response.py
+        from response import release_attacker
+        release_attacker(ip)
+        info["flags"]["isolated"] = False
+        info["flags"]["redirected"] = False
+        info["flags"]["quarantined"] = False
+        info["trust_score"] = 50
+    elif action == "quarantine":
+        info["flags"]["quarantined"] = True
+        info["trust_score"] = 50
+    elif action == "redirect":
+        deploy_honeypot(ip)
+        info["flags"]["redirected"] = True
+        info["trust_score"] = 20
+        
+    save_devices()
+    return jsonify({"status": "OK", "action": action, "ip": ip})
 
 if __name__ == "__main__":
     t = threading.Thread(target=system_loop, daemon=True)

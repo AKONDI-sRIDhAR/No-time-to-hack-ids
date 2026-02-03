@@ -22,7 +22,11 @@
       <!-- Controls -->
       <section class="panel control-panel">
         <h2>COMMAND & CONTROL</h2>
-        <button class="btn danger" onclick="activateDoomsday()">⚠ ACTIVATE DOOMSDAY PROTOCOL</button>
+        <div class="control-group">
+          <button class="btn warning" onclick="alert('Manual Override: Quarantine Initiated')">⚠ QUARANTINE ALL
+            NEW</button>
+          <button class="btn danger" onclick="activateDoomsday()">☢ ACTIVATE DOOMSDAY PROTOCOL</button>
+        </div>
       </section>
 
       <!-- Status -->

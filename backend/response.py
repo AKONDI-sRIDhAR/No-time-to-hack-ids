@@ -66,3 +66,17 @@ def lockdown_network():
     
 # Alias
 isolate = isolate_attacker
+
+def release_attacker(ip):
+    """
+    Remove isolation and redirection rules for an IP.
+    """
+    print(f"[RESPONSE] Releasing {ip}")
+    # Delete Redirects
+    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "22", "-j", "REDIRECT", "--to-port", HONEYPOT_SSH])
+    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-port", HONEYPOT_HTTP])
+    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "445", "-j", "REDIRECT", "--to-port", HONEYPOT_SMB])
+    
+    # Delete Drops
+    run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"])
+    run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"])
