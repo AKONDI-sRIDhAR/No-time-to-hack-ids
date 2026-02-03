@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     procps \
     ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash ntth
 
@@ -19,10 +19,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime directories REQUIRED by Cowrie
 RUN mkdir -p var/log/cowrie \
-             var/lib/cowrie \
-             var/run/cowrie
+    var/lib/cowrie \
+    var/run/cowrie
 
-RUN cp etc/cowrie.cfg.dist etc/cowrie.cfg
+# Custom Config
+COPY backend/cowrie.cfg etc/cowrie.cfg
 
 # Listen on all interfaces
 RUN sed -i 's/^# listen_endpoints/listen_endpoints/' etc/cowrie.cfg && \
