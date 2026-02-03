@@ -19,7 +19,7 @@ class Brain:
         if not os.path.exists(DATASET):
             with open(DATASET, "w") as f:
                 f.write(
-                    "timestamp,ip,mac,packet_rate,port_count,unique_ports,scan_score,label\n"
+                    "timestamp,ip,mac,packet_rate,packet_count,unique_ports,scan_score,label\n"
                 )
 
     def load_data(self):
