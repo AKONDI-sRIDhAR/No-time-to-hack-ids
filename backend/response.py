@@ -56,6 +56,8 @@ def isolate_attacker(attacker_ip):
 
     run_cmd(["iptables", "-A", "FORWARD", "-s", attacker_ip, "-j", "DROP"])
     run_cmd(["iptables", "-A", "FORWARD", "-d", attacker_ip, "-j", "DROP"])
+    
+    generate_evidence_zip()
 
 def lockdown_network():
     """
@@ -64,8 +66,36 @@ def lockdown_network():
     print("[RESPONSE] NETWORK LOCKDOWN ACTIVATED")
     run_cmd(["iptables", "-P", "FORWARD", "DROP"])
     
+import zipfile
+from datetime import datetime
+
 # Alias
 isolate = isolate_attacker
+
+def generate_evidence_zip():
+    """
+    Archives behavior and honeypot logs into a ZIP file.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_name = f"evidence_{timestamp}.zip"
+    
+    # Path is relative to backend root usually, so data/evidence...
+    # backend/data/evidence_...
+    zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", zip_name)
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            # Add files if they exist
+            for f_name in ["behavior.csv", "honeypot.csv"]:
+                f_path = os.path.join(data_dir, f_name)
+                if os.path.exists(f_path):
+                    zf.write(f_path, arcname=f_name)
+        print(f"[RESPONSE] Evidence generated: {zip_path}")
+        return zip_path
+    except Exception as e:
+        print(f"[RESPONSE] Evidence generation failed: {e}")
+        return None
 
 def release_attacker(ip):
     """

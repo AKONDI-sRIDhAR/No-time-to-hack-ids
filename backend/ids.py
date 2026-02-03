@@ -1,4 +1,4 @@
-from scapy.all import sniff, IP, TCP, Ether
+from scapy.all import sniff, IP, TCP, Ether, ARP
 from collections import defaultdict
 import time
 import subprocess
@@ -43,28 +43,37 @@ START_TIME = time.time()
 
 def process_packet(pkt):
     global known_devices
+    now = time.time()
+    ip = None
+    mac = None
     
-    if IP in pkt:
-        ip = pkt[IP].src
-        now = time.time()
+    # 1. ARP (L2 Discovery)
+    if ARP in pkt:
+        ip = pkt[ARP].psrc
+        mac = pkt[ARP].hwsrc
         
-        # 1. Update Persistent Registry & Trust Initialization
+    # 2. IP (L3 Traffic)
+    elif IP in pkt:
+        ip = pkt[IP].src
+        if Ether in pkt:
+            mac = pkt[Ether].src
+
+    if ip:
+        # Update Persistent Registry
         if ip not in known_devices:
             known_devices[ip] = {
-                "mac": "unknown", 
+                "mac": mac if mac else "unknown", 
                 "last_seen": now,
                 "first_seen": now,
-                "trust_score": 50, # New devices start neutral/quarantined
+                "trust_score": 50,
                 "flags": {"redirected": False, "isolated": False, "quarantined": True} 
             }
         else:
             known_devices[ip]["last_seen"] = now
+            if mac and known_devices[ip]["mac"] == "unknown":
+                known_devices[ip]["mac"] = mac
 
-        # Update MAC if available
-        if Ether in pkt:
-            known_devices[ip]["mac"] = pkt[Ether].src
-
-        # 2. Update Cycle Stats
+        # Update Cycle Stats (only for IP traffic usually, but counting ARP is fine for activity)
         device_stats[ip]["packets"] += 1
         if TCP in pkt:
             device_stats[ip]["ports"].add(pkt[TCP].dport)

@@ -75,11 +75,8 @@ export FLASK_ENC=production
 python main.py &
 IDS_PID=$!
 
-# ---- 4. START DASHBOARD ----
-echo "[+] Starting dashboard..."
-cd "$BASE_DIR/frontend"
-python3 -m http.server 5050 >/dev/null 2>&1 &
-UI_PID=$!
+# ---- 4. DASHBOARD SERVED VIA FLASK (Port 5000) ----
+echo "[+] Dashboard available at http://192.168.10.1:5000"
 
 # ---- STATUS ----
 echo ""
@@ -87,7 +84,7 @@ echo "========================================="
 echo " SYSTEM STATUS: LIVE"
 echo "-----------------------------------------"
 echo " Gateway IP      : 192.168.10.1"
-echo " Dashboard       : http://192.168.10.1:5050"
+echo " Dashboard       : http://192.168.10.1:5000"
 echo " SSH Honeypot    : 2222 (Cowrie)"
 echo " HTTP Decoy      : 8080"
 echo " SMB Honeypot    : 445"

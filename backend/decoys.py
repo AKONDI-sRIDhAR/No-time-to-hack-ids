@@ -18,9 +18,11 @@ PORTS = {
 
 def log_interaction(ip, service, data_snippet):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    # CSV Format: timestamp,source_ip,username,password,user_agent
-    # Mapping: username -> Service Name, password -> Data Snippet, user_agent -> "Protocol Emulator"
-    row = [timestamp, ip, service, data_snippet.replace(",", " "), "Protocol Emulator"]
+    # CSV Format: timestamp,source_ip,username,password,user_agent/metadata
+    # We map: service -> service, data -> password? No. 
+    # Let's map: 
+    # timestamp, ip, service, "n/a", data, "Protocol Emulator"
+    row = [timestamp, ip, service, "n/a", data_snippet.replace(",", " "), "Protocol Emulator"]
     
     try:
         with open(HONEYPOT_CSV, "a", newline="") as f:
