@@ -1,9 +1,14 @@
 import subprocess
 import os
+import zipfile
+from datetime import datetime
 
+# Configuration
 HONEYPOT_SSH = "2222"
 HONEYPOT_HTTP = "8080"
 HONEYPOT_SMB = "4445"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "data", "iptables_actions.log")
 
 def run_cmd(cmd):
     """
@@ -18,11 +23,21 @@ def run_cmd(cmd):
     except Exception as e:
         print(f"[RESPONSE] Command failed: {e}")
 
+def log_action(action, details):
+    t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"[{t}] {action}: {details}\n"
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(entry)
+    except Exception as e:
+        print(f"[RESPONSE] Logging failed: {e}")
+
 def deploy_honeypot(attacker_ip):
     """
     Redirect attacker traffic to Docker Honeypot ports
     """
     print(f"[RESPONSE] Redirecting {attacker_ip} to Honeypot Grid")
+    log_action("REDIRECT", f"{attacker_ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
 
     # SSH -> 2222
     run_cmd([
@@ -44,15 +59,13 @@ def deploy_honeypot(attacker_ip):
         "-s", attacker_ip, "-p", "tcp", "--dport", "445",
         "-j", "REDIRECT", "--to-port", HONEYPOT_SMB
     ])
-    
-    # Catch-all? Redirect other high ports to HTTP?
-    # For now, we only trap specific services to limit noise.
 
 def isolate_attacker(attacker_ip):
     """
     Completely isolate attacker from other devices
     """
     print(f"[RESPONSE] Isolating attacker {attacker_ip}")
+    log_action("ISOLATE", f"Dropped Traffic for {attacker_ip}")
 
     run_cmd(["iptables", "-A", "FORWARD", "-s", attacker_ip, "-j", "DROP"])
     run_cmd(["iptables", "-A", "FORWARD", "-d", attacker_ip, "-j", "DROP"])
@@ -64,11 +77,9 @@ def lockdown_network():
     Emergency lockdown – block all forwarding except gateway
     """
     print("[RESPONSE] NETWORK LOCKDOWN ACTIVATED")
+    log_action("LOCKDOWN", "ALL FORWARDING DROPPED")
     run_cmd(["iptables", "-P", "FORWARD", "DROP"])
     
-import zipfile
-from datetime import datetime
-
 # Alias
 isolate = isolate_attacker
 
@@ -80,14 +91,13 @@ def generate_evidence_zip():
     zip_name = f"evidence_{timestamp}.zip"
     
     # Path is relative to backend root usually, so data/evidence...
-    # backend/data/evidence_...
     zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", zip_name)
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     
     try:
         with zipfile.ZipFile(zip_path, 'w') as zf:
             # Add files if they exist
-            for f_name in ["behavior.csv", "honeypot.csv"]:
+            for f_name in ["behavior.csv", "honeypot.csv", "iptables_actions.log"]:
                 f_path = os.path.join(data_dir, f_name)
                 if os.path.exists(f_path):
                     zf.write(f_path, arcname=f_name)
@@ -102,6 +112,8 @@ def release_attacker(ip):
     Remove isolation and redirection rules for an IP.
     """
     print(f"[RESPONSE] Releasing {ip}")
+    log_action("RELEASE", f"Clearing rules for {ip}")
+    
     # Delete Redirects
     run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "22", "-j", "REDIRECT", "--to-port", HONEYPOT_SSH])
     run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-port", HONEYPOT_HTTP])

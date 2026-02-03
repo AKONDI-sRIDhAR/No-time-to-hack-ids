@@ -129,25 +129,26 @@ def doomsday():
 def manual_action(action, ip):
     print(f"[API] Manual Action: {action} on {ip}")
     
-    # Locate device in state (optional, but good for validation)
-    # Actually, we need to update the flags in 'ids.known_devices' but that's in another module's scope.
-    # ids.known_devices is global in ids.py. We need to access it.
     from ids import known_devices, save_devices
     
-    if ip not in known_devices:
+    # 1. Find device by IP (since known_devices is MAC-keyed now)
+    target_mac = None
+    info = None
+    
+    for mac, data in known_devices.items():
+        if data.get("ip") == ip:
+            target_mac = mac
+            info = data
+            break
+            
+    if not info:
         return jsonify({"error": "Device not found"}), 404
-        
-    info = known_devices[ip]
     
     if action == "isolate":
         isolate(ip)
         info["flags"]["isolated"] = True
         info["trust_score"] = 0
     elif action == "release":
-        # Remove iptables rules? existing 'response.py' only has DROP/REDIRECT additions.
-        # We need a 'release' function in response.py ideally, but for now we reset flags.
-        # Real iptables cleanup is complex without a tracking chain.
-        # For prototype: We assume a flush or manual cleanup, or we add 'release_attacker' to response.py
         from response import release_attacker
         release_attacker(ip)
         info["flags"]["isolated"] = False
