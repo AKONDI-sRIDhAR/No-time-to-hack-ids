@@ -4,7 +4,7 @@ An autonomous Intrusion Detection System (IDS) and Deception System designed for
 
 ## 🚀 Features
 
-*   **Autonomous Operation:** No human intervention needed.
+*   **Autonomous Operation:** No human intervention need.
 *   **Real-Time IDS:** Detects Nmap scans, packet floods, anomalous ports.
 *   **Behavioral ML:** Learns device behavior over time (Unsupervised Anomaly Detection).
 *   **Docker Deception Grid:** Instantly spins up a honeypot (Cowrie++) pretending to be a vulnerable IoT device.
@@ -28,15 +28,14 @@ chmod +x run.sh
 
 ## 🧪 Demonstration Flow (How to Demo)
 
-Follow these steps exactly to demonstrate the system's capabilities.
+Follow the below steps exactly to demonstrate the system's capabilities.
 
 ### 1. Boot & Network Setup
 *   Ensure Kali Linux is running.
-*   Run the AP Mode script (if using Wi-Fi AP):
+*   Run the AP Mode script:
     ```bash
     sudo ./apmode.sh
     ```
-    *(Note: Connect your IoT devices and "Attacker" device to this Access Point)*
 
 ### 2. Start the Autonomous System
 *   Run the main system script:
