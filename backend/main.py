@@ -3,9 +3,10 @@ import time
 import os
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
-from ids import start_ids_cycle
+from ids import start_ids_cycle, known_devices, save_devices, lock
 from response import deploy_honeypot, isolate, lockdown_network
 import docker_honeypot
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(os.path.dirname(BASE_DIR), "frontend")
@@ -26,8 +27,11 @@ def system_loop():
 
     if os.name != "nt":
         docker_honeypot.start_honeypot()
-        import decoys
-        decoys.start_decoys()
+        try:
+            import decoys
+            decoys.start_decoys()
+        except ImportError:
+            pass
 
     while True:
         try:
@@ -39,40 +43,34 @@ def system_loop():
                 for threat in threats:
                     ip = threat["ip"]
                     try:
-                        score = threat["score"]     # ML Anomaly Score
-                        trust = threat["trust"]     # Trust Score
-                        flags = threat["flags"]     # Protection Flags
+                        score = threat["score"]     
+                        trust = threat["trust"]     
+                        flags = threat["flags"]     
                     except KeyError:
-                        # Fallback for transient state
                         score, trust, flags = 0, 50, {}
                     
                     action_msg = "Monitoring"
                     
-                    # Level 2: Deceive (Redirected Flag)
                     if flags.get("redirected", False):
                         deploy_honeypot(ip)
                         action_msg = "Redirecting to Honeypot"
                         
-                    # Level 3: Contain (Isolated Flag)
                     if flags.get("isolated", False):
                         isolate(ip)
                         action_msg = "ISOLATED & Redirected"
 
-                    # 1️⃣3️⃣ ML Explainability Layer Integration
                     explanation = threat.get("reason", "Unknown Anomaly")
                     if "correlation" in threat:
                         explanation += f" | {threat['correlation']}"
 
-                    # Only alert if something interesting is happening
                     if flags.get("redirected") or score > 50:
                         alert = {
                             "timestamp": time.strftime("%H:%M:%S"),
                             "ip": ip,
-                            "type": f"Trust: {trust} | {explanation}", # Richer Type/Reason
+                            "type": f"Trust: {trust} | {explanation}", 
                             "action": action_msg
                         }
                         
-                        # Dedupe alerts slightly (simple check)
                         if not SYSTEM_STATE["alerts"] or SYSTEM_STATE["alerts"][0]["type"] != alert["type"] or SYSTEM_STATE["alerts"][0]["ip"] != ip:
                             SYSTEM_STATE["alerts"].insert(0, alert)
                             SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
@@ -89,17 +87,22 @@ def load_honeypot_logs():
     logs = []
 
     if os.path.exists(csv_path):
-        with open(csv_path) as f:
-            for line in f.readlines()[1:]:
-                parts = line.strip().split(",")
-                if len(parts) >= 6:
-                    logs.insert(0, {
-                        "timestamp": parts[0],
-                        "ip": parts[1],
-                        "service": parts[2],
-                        "credential": f"{parts[3]}:{parts[4]}",
-                        "ua": parts[5]
-                    })
+        try:
+            with open(csv_path) as f:
+                lines = f.readlines()
+                if len(lines) > 1:
+                    for line in lines[1:]:
+                        parts = line.strip().split(",")
+                        if len(parts) >= 6:
+                            logs.insert(0, {
+                                "timestamp": parts[0],
+                                "ip": parts[1],
+                                "service": parts[2],
+                                "credential": f"{parts[3]}:{parts[4]}",
+                                "ua": parts[5]
+                            })
+        except Exception:
+            pass
 
     return logs[:20]
 
@@ -129,41 +132,41 @@ def doomsday():
 def manual_action(action, ip):
     print(f"[API] Manual Action: {action} on {ip}")
     
-    from ids import known_devices, save_devices
-    
-    # 1. Find device by IP (since known_devices is MAC-keyed now)
-    target_mac = None
-    info = None
-    
-    for mac, data in known_devices.items():
-        if data.get("ip") == ip:
-            target_mac = mac
-            info = data
-            break
-            
-    if not info:
-        return jsonify({"error": "Device not found"}), 404
-    
-    if action == "isolate":
-        isolate(ip)
-        info["flags"]["isolated"] = True
-        info["trust_score"] = 0
-    elif action == "release":
-        from response import release_attacker
-        release_attacker(ip)
-        info["flags"]["isolated"] = False
-        info["flags"]["redirected"] = False
-        info["flags"]["quarantined"] = False
-        info["trust_score"] = 50
-    elif action == "quarantine":
-        info["flags"]["quarantined"] = True
-        info["trust_score"] = 50
-    elif action == "redirect":
-        deploy_honeypot(ip)
-        info["flags"]["redirected"] = True
-        info["trust_score"] = 20
+    # 1. Thread-safe updates to registry
+    with lock:
+        target_mac = None
+        info = None
         
-    save_devices()
+        for mac, data in known_devices.items():
+            if data.get("ip") == ip:
+                target_mac = mac
+                info = data
+                break
+                
+        if not info:
+            return jsonify({"error": "Device not found"}), 404
+        
+        if action == "isolate":
+            isolate(ip)
+            info["flags"]["isolated"] = True
+            info["trust_score"] = 0
+        elif action == "release":
+            from response import release_attacker
+            release_attacker(ip)
+            info["flags"]["isolated"] = False
+            info["flags"]["redirected"] = False
+            info["flags"]["quarantined"] = False
+            info["trust_score"] = 50
+        elif action == "quarantine":
+            info["flags"]["quarantined"] = True
+            info["trust_score"] = 50
+        elif action == "redirect":
+            deploy_honeypot(ip)
+            info["flags"]["redirected"] = True
+            info["trust_score"] = 20
+            
+        save_devices()
+        
     return jsonify({"status": "OK", "action": action, "ip": ip})
 
 if __name__ == "__main__":

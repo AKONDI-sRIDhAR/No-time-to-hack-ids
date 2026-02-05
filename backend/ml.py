@@ -24,6 +24,10 @@ class Brain:
 
     def load_data(self):
         try:
+            # Check if file is empty (just header)
+            if os.path.getsize(DATASET) < 100: # Arbitrary small size check
+                return pd.DataFrame()
+                
             df = pd.read_csv(DATASET)
             return df
         except Exception as e:
@@ -32,11 +36,20 @@ class Brain:
 
     def train(self):
         df = self.load_data()
-        if len(df) > 10:
-            X = df[["packet_rate", "unique_ports"]]
-            self.model.fit(X)
-            self.is_fitted = True
-            print("[ML] Model retrained with new data.")
+        
+        # Robust check for empty or insufficient data
+        if df.empty or len(df) < 10:
+            return
+
+        try:
+            # Ensure numeric columns exist and are valid
+            if "packet_rate" in df.columns and "unique_ports" in df.columns:
+                X = df[["packet_rate", "unique_ports"]]
+                self.model.fit(X)
+                self.is_fitted = True
+                print("[ML] Model retrained with new data.")
+        except Exception as e:
+            print(f"[ML] Training failed: {e}")
 
     def analyze(self, packet_rate, unique_ports):
         """
@@ -53,25 +66,29 @@ class Brain:
             score += 50
             explanation.append("Port Scan Detected")
 
-        # ---- FIXED BLOCK (indentation + sklearn-safe input) ----
         if self.is_fitted:
-            X_test = pd.DataFrame(
-                [[packet_rate, unique_ports]],
-                columns=["packet_rate", "unique_ports"]
-            )
+            try:
+                X_test = pd.DataFrame(
+                    [[packet_rate, unique_ports]],
+                    columns=["packet_rate", "unique_ports"]
+                )
 
-            pred = self.model.predict(X_test)[0]
-            if pred == -1:
-                score += 30
-                explanation.append("ML Anomaly Detected")
-        # --------------------------------------------------------
+                pred = self.model.predict(X_test)[0]
+                if pred == -1:
+                    score += 30
+                    explanation.append("ML Anomaly Detected")
+            except Exception:
+                pass
 
         is_anomalous = score >= 50
         return is_anomalous, f"{score} ({', '.join(explanation)})"
 
     def log_event(self, row):
-        with open(DATASET, "a") as f:
-            f.write(",".join(map(str, row)) + "\n")
+        try:
+            with open(DATASET, "a") as f:
+                f.write(",".join(map(str, row)) + "\n")
+        except Exception:
+            pass
 
 brain = Brain()
 
