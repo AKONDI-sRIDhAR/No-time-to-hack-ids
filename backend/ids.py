@@ -63,7 +63,6 @@ def get_dhcp_leases():
                     parts = line.split()
                     if len(parts) >= 3:
                         try:
-                            # Basic validation using IP dot check
                             if "." in parts[2]: 
                                 expiry = float(parts[0])
                                 mac = parts[1]
@@ -91,6 +90,7 @@ def get_arp_table():
         for line in output.splitlines():
             parts = line.split()
             if len(parts) >= 5:
+                # 192.168.10.x dev wlan0 lladdr AA:BB:CC... STALE/REACHABLE
                 ip = parts[0]
                 mac = parts[4]
                 state = parts[-1] 
@@ -100,18 +100,44 @@ def get_arp_table():
         pass
     return arp_entries
 
+def get_wifi_associations():
+    """
+    Parses 'iw dev wlan0 station dump' for strictly associated clients.
+    This confirms physical presence even if silent on IP layer.
+    """
+    associated_macs = set()
+    try:
+        # Assuming wlan0 is the AP interface. 
+        # In a real environment we might want to detect this dynamically or config it.
+        # But 'wlan0' is standard for this project context (apmode.sh).
+        output = subprocess.check_output(["iw", "dev", "wlan0", "station", "dump"], text=True)
+        for line in output.splitlines():
+            if "Station" in line:
+                # Format: Station AA:BB:CC:DD:EE:FF (on wlan0)
+                parts = line.split()
+                if len(parts) >= 2:
+                    mac = parts[1]
+                    associated_macs.add(mac)
+    except Exception:
+        pass
+    return associated_macs
+
 def scan_network_state():
     """
     Updates known_devices Registry.
-    Authoritative Presence Logic:
-    1. DHCP: If Lease Valid -> Device is ONLINE (Source of Identity)
-    2. ARP:  If Entry Exists -> Device is ONLINE (Heartbeat)
+    Authoritative Presence Logic (The "Trinity"):
+    1. DHCP: Identity Source (Hostname, IP, Lease)
+    2. ARP:  Layer 3 Heartbeat (Actively communicating)
+    3. Wi-Fi: Layer 2 Presence (Physically connected)
+    
+    If ANY of these say "Here", the device is ONLINE.
     """
     global known_devices
     now = time.time()
     
     dhcp = get_dhcp_leases()
     arp = get_arp_table()
+    wifi_clients = get_wifi_associations()
     
     with lock:
         # 1. Process DHCP (Identity + Presence)
@@ -131,8 +157,7 @@ def scan_network_state():
                 if info["hostname"] != "unknown":
                     known_devices[mac]["hostname"] = info["hostname"]
                 
-                # A valid lease means the device is effectively "here" in a gateway context
-                # This ensures immediate appearance on connect.
+                # Valid lease = Presumed Online
                 known_devices[mac]["last_seen"] = now
 
         # 2. Process ARP (Real-time Heartbeat)
@@ -140,7 +165,7 @@ def scan_network_state():
             if mac not in known_devices:
                 known_devices[mac] = {
                     "ip": ip,
-                    "hostname": "unknown",         # Will be filled by DHCP later if available
+                    "hostname": "unknown",
                     "mac": mac,
                     "first_seen": now,
                     "last_seen": now,
@@ -148,14 +173,30 @@ def scan_network_state():
                     "flags": {"redirected": False, "isolated": False, "quarantined": True}
                 }
             
-            # ARP confirmation overrides everything else for "Is it here?"
             known_devices[mac]["last_seen"] = now
             known_devices[mac]["ip"] = ip 
+            
+        # 3. Process Wi-Fi Association (Physical Presence)
+        for mac in wifi_clients:
+            if mac in known_devices:
+                 known_devices[mac]["last_seen"] = now
+            else:
+                # Connected to Wifi but no IP yet?
+                known_devices[mac] = {
+                    "ip": "0.0.0.0",
+                    "hostname": "unknown",
+                    "mac": mac,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "trust_score": 50,
+                    "flags": {"redirected": False, "isolated": False, "quarantined": True}
+                }
         
 def process_packet(pkt):
     global device_stats
     if Ether in pkt:
         mac = pkt[Ether].src
+        # Traffic maps to behavior stats but does NOT confirm presence
         device_stats[mac]["packets"] += 1
         if TCP in pkt:
             device_stats[mac]["ports"].add(pkt[TCP].dport)
@@ -173,7 +214,7 @@ def analyze_traffic():
     
     # Lock the entire analysis phase to prevent partial reads/writes
     with lock:
-        # PRESENCE IS DETERMINED HERE ONLY
+        # PRESENCE IS DETERMINED HERE ONLY (The "Trinity")
         scan_network_state()
         
         now = time.time()
