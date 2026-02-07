@@ -10,27 +10,47 @@ HONEYPOT_SMB = "4445"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "data", "iptables_actions.log")
 
-def run_cmd(cmd):
+def run_cmd(cmd, ignore_error=False):
     """
-    Run shell commands safely, ignoring errors on Windows.
+    Run shell commands safely.
     """
     if os.name == 'nt':
         print(f"[WINDOWS SIMULATION] Executing: {' '.join(cmd)}")
         return
 
     try:
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0 and not ignore_error:
+            print(f"[RESPONSE] Command failed: {' '.join(cmd)}\nError: {result.stderr.strip()}")
     except Exception as e:
-        print(f"[RESPONSE] Command failed: {e}")
+        print(f"[RESPONSE] Command execution error: {e}")
 
 def log_action(action, details):
     t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"[{t}] {action}: {details}\n"
     try:
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
         with open(LOG_FILE, "a") as f:
             f.write(entry)
     except Exception as e:
         print(f"[RESPONSE] Logging failed: {e}")
+
+def _delete_redirect_rule(ip, dport, to_port):
+    # Try to delete rule if it exists
+    cmd = [
+        "iptables", "-t", "nat", "-D", "PREROUTING",
+        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-j", "REDIRECT", "--to-port", str(to_port)
+    ]
+    run_cmd(cmd, ignore_error=True)
+
+def _add_redirect_rule(ip, dport, to_port):
+    cmd = [
+        "iptables", "-t", "nat", "-A", "PREROUTING",
+        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-j", "REDIRECT", "--to-port", str(to_port)
+    ]
+    run_cmd(cmd)
 
 def deploy_honeypot(attacker_ip):
     """
@@ -40,25 +60,16 @@ def deploy_honeypot(attacker_ip):
     log_action("REDIRECT", f"{attacker_ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
 
     # SSH -> 2222
-    run_cmd([
-        "iptables", "-t", "nat", "-A", "PREROUTING",
-        "-s", attacker_ip, "-p", "tcp", "--dport", "22",
-        "-j", "REDIRECT", "--to-port", HONEYPOT_SSH
-    ])
+    _delete_redirect_rule(attacker_ip, 22, HONEYPOT_SSH)
+    _add_redirect_rule(attacker_ip, 22, HONEYPOT_SSH)
     
     # HTTP -> 8080
-    run_cmd([
-        "iptables", "-t", "nat", "-A", "PREROUTING",
-        "-s", attacker_ip, "-p", "tcp", "--dport", "80",
-        "-j", "REDIRECT", "--to-port", HONEYPOT_HTTP
-    ])
+    _delete_redirect_rule(attacker_ip, 80, HONEYPOT_HTTP)
+    _add_redirect_rule(attacker_ip, 80, HONEYPOT_HTTP)
 
     # SMB -> 4445
-    run_cmd([
-        "iptables", "-t", "nat", "-A", "PREROUTING",
-        "-s", attacker_ip, "-p", "tcp", "--dport", "445",
-        "-j", "REDIRECT", "--to-port", HONEYPOT_SMB
-    ])
+    _delete_redirect_rule(attacker_ip, 445, HONEYPOT_SMB)
+    _add_redirect_rule(attacker_ip, 445, HONEYPOT_SMB)
 
 def isolate_attacker(attacker_ip):
     """
@@ -66,6 +77,10 @@ def isolate_attacker(attacker_ip):
     """
     print(f"[RESPONSE] Isolating attacker {attacker_ip}")
     log_action("ISOLATE", f"Dropped Traffic for {attacker_ip}")
+
+    # Ensure no duplicates by deleting first
+    run_cmd(["iptables", "-D", "FORWARD", "-s", attacker_ip, "-j", "DROP"], ignore_error=True)
+    run_cmd(["iptables", "-D", "FORWARD", "-d", attacker_ip, "-j", "DROP"], ignore_error=True)
 
     run_cmd(["iptables", "-A", "FORWARD", "-s", attacker_ip, "-j", "DROP"])
     run_cmd(["iptables", "-A", "FORWARD", "-d", attacker_ip, "-j", "DROP"])
@@ -90,11 +105,11 @@ def generate_evidence_zip():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_name = f"evidence_{timestamp}.zip"
     
-    # Path is relative to backend root usually, so data/evidence...
-    zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", zip_name)
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    zip_path = os.path.join(data_dir, zip_name)
     
     try:
+        os.makedirs(data_dir, exist_ok=True)
         with zipfile.ZipFile(zip_path, 'w') as zf:
             # Add files if they exist
             for f_name in ["behavior.csv", "honeypot.csv", "iptables_actions.log"]:
@@ -115,10 +130,10 @@ def release_attacker(ip):
     log_action("RELEASE", f"Clearing rules for {ip}")
     
     # Delete Redirects
-    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "22", "-j", "REDIRECT", "--to-port", HONEYPOT_SSH])
-    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-port", HONEYPOT_HTTP])
-    run_cmd(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "445", "-j", "REDIRECT", "--to-port", HONEYPOT_SMB])
+    _delete_redirect_rule(ip, 22, HONEYPOT_SSH)
+    _delete_redirect_rule(ip, 80, HONEYPOT_HTTP)
+    _delete_redirect_rule(ip, 445, HONEYPOT_SMB)
     
     # Delete Drops
-    run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"])
-    run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"])
+    run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"], ignore_error=True)
+    run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"], ignore_error=True)

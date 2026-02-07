@@ -2,6 +2,7 @@ import subprocess
 import os
 import re
 import csv
+import json
 from datetime import datetime
 
 # Configuration
@@ -114,20 +115,29 @@ def process_log_line(service, line, writer):
     
     # --- Cowrie (SSH) ---
     if service == "SSH":
-        # IP Extraction
-        m = re.search(r"src_ip=([^ ]+)", line) # Cowrie often uses key=value or JSON
-        if not m: m = re.search(r"\[.*?,.*?,(.*?)\]", line)
-        if m: ip = m.group(1)
-        
-        # Login
-        m = re.search(r"login attempt \[(.*?)/(.*?)\]", line)
-        if m: 
-            user = m.group(1)
-            pwd = m.group(2)
-            meta = "SSH Login Attempt"
-        
-        if "CMD:" in line:
-            meta = line.split("CMD:")[-1].strip()
+        # Try JSON first
+        try:
+            data = json.loads(line)
+            ip = data.get("src_ip", "unknown")
+            user = data.get("username", "")
+            pwd = data.get("password", "")
+            meta = data.get("eventid", "")
+            if data.get("eventid") == "cowrie.command.input":
+                meta = f"CMD: {data.get('input', '')}"
+        except json.JSONDecodeError:
+            # Fallback to regex
+            m = re.search(r"src_ip=([^ ]+)", line)
+            if not m: m = re.search(r"\[.*?,.*?,(.*?)\]", line)
+            if m: ip = m.group(1)
+
+            m = re.search(r"login attempt \[(.*?)/(.*?)\]", line)
+            if m:
+                user = m.group(1)
+                pwd = m.group(2)
+                meta = "SSH Login Attempt"
+
+            if "CMD:" in line:
+                meta = line.split("CMD:")[-1].strip()
 
     # --- Nginx (HTTP) ---
     elif service == "HTTP":
@@ -139,6 +149,14 @@ def process_log_line(service, line, writer):
                 # Extract Request
                 m = re.search(r"\"(.*?)\"", line)
                 if m: meta = m.group(1)
+            # Extract UA
+            # Nginx combined format: ... "referer" "user-agent"
+            # Match last quoted string more reliably
+            m = re.findall(r'"([^"]*)"', line)
+            if len(m) >= 2:  # At least referer and UA
+                ua = m[-1]
+                if ua and ua != "-":
+                    meta += f" | UA: {ua[:20]}..."
 
     # --- Dionaea (SMB) ---
     elif service == "SMB":

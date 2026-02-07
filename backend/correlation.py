@@ -11,18 +11,10 @@ HONEYPOT_CSV = os.path.join(DATA_DIR, "honeypot.csv")
 
 # Constants
 TRUST_LOSS_HONEYPOT = 40
-TRUST_GAIN_HOUR = 5
 
 class CorrelationEngine:
     def __init__(self):
-        self.ensure_csvs()
-
-    def ensure_csvs(self):
-        os.makedirs(DATA_DIR, exist_ok=True)
-        if not os.path.exists(BEHAVIOR_CSV):
-            with open(BEHAVIOR_CSV, "w") as f:
-                f.write("timestamp,ip,mac,packet_rate,port_count,unique_ports,scan_score,label\n")
-        # Honeypot CSV created by docker_honeypot.py
+        pass
 
     def correlate(self, threats):
         """
@@ -30,22 +22,26 @@ class CorrelationEngine:
         Returns updated threats list with explanation.
         """
         # Load recent honeypot interactions
-        hp_logs = self.load_recent_honeypot_activity(minutes=5)
+        # This checks if an IP that triggered IDS also touched a honeypot
+        hp_logs = self.load_recent_honeypot_activity()
         
+        updated_threats = []
         for threat in threats:
-            ip = threat["ip"]
+            ip = threat.get("ip")
             # Check if this IP is in honeypot logs
-            if ip in hp_logs:
+            if ip and ip in hp_logs:
                 # CORRELATION DETECTED: Anomaly + Deception Interaction
                 # Escalate score
-                threat["score"] = min(100, threat["score"] + 30)
-                threat["trust"] = max(0, threat["trust"] - TRUST_LOSS_HONEYPOT)
+                threat["score"] = min(100, threat.get("score", 0) + 30)
+                threat["trust"] = max(0, threat.get("trust", 50) - TRUST_LOSS_HONEYPOT)
                 threat["correlation"] = f"Correlation: Anomaly + Honeypot Interaction ({hp_logs[ip]} events)"
-                threat["flags"]["redirected"] = True # Ensure redirection is active
+                if "flags" in threat:
+                    threat["flags"]["redirected"] = True # Ensure redirection is active
+            updated_threats.append(threat)
         
-        return threats
+        return updated_threats
 
-    def load_recent_honeypot_activity(self, minutes=5):
+    def load_recent_honeypot_activity(self):
         """
         Returns {ip: count} of unique IPs seen in honeypot logs recently.
         """
@@ -54,21 +50,22 @@ class CorrelationEngine:
             return activity
             
         try:
-            # Simple tail parse (optimization: read reverse)
-            # For prototype, reading full file is okay if small, but let's be safer.
-            # We assume regular log rotation or small size for this scope.
+            # Check if file has content
+            if os.path.getsize(HONEYPOT_CSV) < 50:
+                return activity
+
             df = pd.read_csv(HONEYPOT_CSV)
             if df.empty: return activity
             
-            # Filter by time? 
-            # Since logging is just appending strings, parsing timestamps is costly.
             # Simplified: Just check if IP exists in "recent" rows (last 50)
             recent = df.tail(50)
-            for ip in recent["source_ip"].unique():
-                activity[ip] = len(recent[recent["source_ip"] == ip])
+            if "source_ip" in recent.columns:
+                for ip in recent["source_ip"].unique():
+                    count = len(recent[recent["source_ip"] == ip])
+                    activity[ip] = count
                 
-        except Exception:
-            pass
+        except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+            print(f"[CORRELATION] Error: {e}")
         return activity
 
 correlator = CorrelationEngine()
