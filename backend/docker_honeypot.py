@@ -150,10 +150,13 @@ def process_log_line(service, line, writer):
                 m = re.search(r"\"(.*?)\"", line)
                 if m: meta = m.group(1)
             # Extract UA
-            m = re.search(r"\"(.*?)\"$", line)
-            if m:
-                ua = m.group(1)
-                meta += f" | UA: {ua[:20]}..."
+            # Nginx combined format: ... "referer" "user-agent"
+            # Match last quoted string more reliably
+            m = re.findall(r'"([^"]*)"', line)
+            if len(m) >= 2:  # At least referer and UA
+                ua = m[-1]
+                if ua and ua != "-":
+                    meta += f" | UA: {ua[:20]}..."
 
     # --- Dionaea (SMB) ---
     elif service == "SMB":
