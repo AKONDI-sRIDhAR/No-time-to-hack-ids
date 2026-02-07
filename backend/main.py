@@ -1,10 +1,11 @@
 import threading
 import time
 import os
-from flask import Flask, jsonify, send_from_directory
+import csv
+from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from ids import start_ids_cycle, known_devices, save_devices, lock
-from response import deploy_honeypot, isolate, lockdown_network
+from response import deploy_honeypot, isolate, lockdown_network, release_attacker
 import docker_honeypot
 import sys
 
@@ -41,13 +42,12 @@ def system_loop():
             # Handle Threats with Protection Ladder
             if threats:
                 for threat in threats:
-                    ip = threat["ip"]
-                    try:
-                        score = threat["score"]     
-                        trust = threat["trust"]     
-                        flags = threat["flags"]     
-                    except KeyError:
-                        score, trust, flags = 0, 50, {}
+                    ip = threat.get("ip")
+                    if not ip: continue
+
+                    score = threat.get("score", 0)
+                    trust = threat.get("trust", 50)
+                    flags = threat.get("flags", {})
                     
                     action_msg = "Monitoring"
                     
@@ -63,7 +63,8 @@ def system_loop():
                     if "correlation" in threat:
                         explanation += f" | {threat['correlation']}"
 
-                    if flags.get("redirected") or score > 50:
+                    # Alert if significant action or anomaly
+                    if flags.get("redirected") or flags.get("isolated") or score > 50:
                         alert = {
                             "timestamp": time.strftime("%H:%M:%S"),
                             "ip": ip,
@@ -71,11 +72,14 @@ def system_loop():
                             "action": action_msg
                         }
                         
+                        # Avoid duplicate alerts at top
                         if not SYSTEM_STATE["alerts"] or SYSTEM_STATE["alerts"][0]["type"] != alert["type"] or SYSTEM_STATE["alerts"][0]["ip"] != ip:
                             SYSTEM_STATE["alerts"].insert(0, alert)
                             SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
                             print(f"[MAIN] Protection Active: {action_msg} for {ip} (Reason: {explanation})")
 
+            # Parse logs less frequently? Or every cycle?
+            # Every cycle (approx 5s) is fine.
             docker_honeypot.parse_logs()
         except Exception as e:
             print(f"[MAIN] Loop Error: {e}")
@@ -88,18 +92,19 @@ def load_honeypot_logs():
 
     if os.path.exists(csv_path):
         try:
-            with open(csv_path) as f:
-                lines = f.readlines()
-                if len(lines) > 1:
-                    for line in lines[1:]:
-                        parts = line.strip().split(",")
-                        if len(parts) >= 6:
+            with open(csv_path, newline="") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                if header:
+                    for row in reader:
+                        if len(row) >= 6:
+                            # timestamp, source_ip, service, username, password, metadata
                             logs.insert(0, {
-                                "timestamp": parts[0],
-                                "ip": parts[1],
-                                "service": parts[2],
-                                "credential": f"{parts[3]}:{parts[4]}",
-                                "ua": parts[5]
+                                "timestamp": row[0],
+                                "ip": row[1],
+                                "service": row[2],
+                                "credential": f"{row[3]}:{row[4]}",
+                                "ua": row[5]
                             })
         except Exception:
             pass
@@ -132,7 +137,6 @@ def doomsday():
 def manual_action(action, ip):
     print(f"[API] Manual Action: {action} on {ip}")
     
-    # 1. Thread-safe updates to registry
     with lock:
         target_mac = None
         info = None
@@ -151,7 +155,6 @@ def manual_action(action, ip):
             info["flags"]["isolated"] = True
             info["trust_score"] = 0
         elif action == "release":
-            from response import release_attacker
             release_attacker(ip)
             info["flags"]["isolated"] = False
             info["flags"]["redirected"] = False
