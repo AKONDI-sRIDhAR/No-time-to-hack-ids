@@ -64,9 +64,8 @@ class CorrelationEngine:
                     count = len(recent[recent["source_ip"] == ip])
                     activity[ip] = count
                 
-        except Exception as e:
+        except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
             print(f"[CORRELATION] Error: {e}")
-            pass
         return activity
 
 correlator = CorrelationEngine()
