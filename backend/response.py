@@ -39,8 +39,8 @@ def validate_ip(ip):
         obj = ipaddress.ip_address(ip)
         if obj.is_loopback:
             raise ValueError("Loopback addresses not allowed")
-    except ValueError:
-        raise ValueError(f"Invalid IP address: {ip}")
+    except ValueError as e:
+        raise ValueError(f"Invalid IP address: {ip}") from e
 
 def log_action(action, details):
     t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -112,10 +112,10 @@ def isolate_attacker(attacker_ip):
     run_cmd(["iptables", "-D", "FORWARD", "-d", attacker_ip, "-j", "DROP"], ignore_error=True)
 
     if not run_cmd(["iptables", "-A", "FORWARD", "-s", attacker_ip, "-j", "DROP"]):
-         print(f"[RESPONSE] Failed to isolate source {attacker_ip}")
+        print(f"[RESPONSE] Failed to isolate source {attacker_ip}")
 
     if not run_cmd(["iptables", "-A", "FORWARD", "-d", attacker_ip, "-j", "DROP"]):
-         print(f"[RESPONSE] Failed to isolate dest {attacker_ip}")
+        print(f"[RESPONSE] Failed to isolate dest {attacker_ip}")
     
     generate_evidence_zip()
 

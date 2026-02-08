@@ -43,7 +43,8 @@ def system_loop():
             if threats:
                 for threat in threats:
                     ip = threat.get("ip")
-                    if not ip: continue
+                    if not ip:
+                        continue
 
                     score = threat.get("score", 0)
                     trust = threat.get("trust", 50)
@@ -78,8 +79,7 @@ def system_loop():
                             SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
                             print(f"[MAIN] Protection Active: {action_msg} for {ip} (Reason: {explanation})")
 
-            # Parse logs less frequently? Or every cycle?
-            # Every cycle (approx 5s) is fine.
+            # Parse honeypot logs every cycle (~5s interval)
             docker_honeypot.parse_logs()
         except Exception as e:
             print(f"[MAIN] Loop Error: {e}")
@@ -106,8 +106,8 @@ def load_honeypot_logs():
                                 "credential": f"{row[3]}:{row[4]}",
                                 "ua": row[5]
                             })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[MAIN] Failed to parse honeypot.csv: {e}")
 
     return logs[:20]
 

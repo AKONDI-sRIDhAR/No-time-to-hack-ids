@@ -127,8 +127,10 @@ def process_log_line(service, line, writer):
         except json.JSONDecodeError:
             # Fallback to regex
             m = re.search(r"src_ip=([^ ]+)", line)
-            if not m: m = re.search(r"\[.*?,.*?,(.*?)\]", line)
-            if m: ip = m.group(1)
+            if not m:
+                m = re.search(r"\[.*?,.*?,(.*?)\]", line)
+            if m:
+                ip = m.group(1)
 
             m = re.search(r"login attempt \[(.*?)/(.*?)\]", line)
             if m:

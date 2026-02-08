@@ -63,11 +63,17 @@ echo "[+] Checking Python dependencies (Runtime Only)..."
 # We do NOT pip install here because AP mode is offline.
 # Dependencies must be pre-installed.
 
+# Check specific critical imports using python
+if ! python -c "import flask, pandas, sklearn, scapy, requests, flask_cors" 2>/dev/null; then
+  echo "[-] Python dependencies are missing or inconsistent. Install them offline before running."
+  exit 1
+fi
+
 # Dataset handled by backend/ml.py
 mkdir -p data
 
 # IMPORTANT: use `python`, not `python3`
-export FLASK_ENV=production
+export FLASK_DEBUG=0
 python main.py &
 IDS_PID=$!
 

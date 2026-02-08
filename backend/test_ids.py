@@ -13,7 +13,7 @@ class TestIDS(unittest.TestCase):
     @patch("ids.subprocess.check_output")
     @patch("ids.open", new_callable=mock_open)
     @patch("ids.os.path.exists")
-    def test_scan_network_state_wifi(self, mock_exists, mock_file, mock_subprocess):
+    def test_scan_network_state_wifi(self, mock_exists, _mock_file, mock_subprocess):
         # Mock file existence
         mock_exists.return_value = False
 
@@ -37,7 +37,7 @@ class TestIDS(unittest.TestCase):
         expiry = int(time.time() + 3600)
         lease_content = f"{expiry} AA:BB:CC:DD:EE:FF 192.168.10.2 myphone *"
 
-        with patch("ids.open", mock_open(read_data=lease_content)) as m:
+        with patch("ids.open", mock_open(read_data=lease_content)):
              ids.scan_network_state()
 
         self.assertIn("AA:BB:CC:DD:EE:FF", ids.known_devices)
@@ -47,7 +47,7 @@ class TestIDS(unittest.TestCase):
     @patch("ids.subprocess.check_output")
     @patch("ids.open", new_callable=mock_open)
     @patch("ids.os.path.exists")
-    def test_scan_network_state_arp(self, mock_exists, mock_file, mock_subprocess):
+    def test_scan_network_state_arp(self, mock_exists, _mock_file, mock_subprocess):
         mock_exists.return_value = False
 
         def side_effect(cmd, **kwargs):
@@ -68,7 +68,7 @@ class TestIDS(unittest.TestCase):
     @patch("ids.is_anomalous")
     @patch("ids.log_event")
     @patch("ids.save_devices")
-    def test_analyze_traffic_statuses(self, mock_save, mock_log, mock_anomalous, mock_scan):
+    def test_analyze_traffic_statuses(self, _mock_save, _mock_log, mock_anomalous, _mock_scan):
         # Setup known devices
         now = time.time()
         ids.known_devices = {
@@ -106,12 +106,13 @@ class TestIDS(unittest.TestCase):
         ids.device_stats["SUSPICIOUS_DEV"]["packets"] = 600
         ids.device_stats["SUSPICIOUS_DEV"]["ports"].add(22)
 
-        def anomalous_side_effect(rate, ports):
-            if rate > 50: return True, "100 Anomalous"
+        def anomalous_side_effect(rate, _ports):
+            if rate > 50:
+                return True, "100 Anomalous"
             return False, "0 Normal"
         mock_anomalous.side_effect = anomalous_side_effect
 
-        threats, active = ids.analyze_traffic()
+        _threats, active = ids.analyze_traffic()
 
         status_map = {d["mac"]: d["status"] for d in active}
 

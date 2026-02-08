@@ -78,16 +78,17 @@ class Brain:
 
         if self.is_fitted:
             try:
-                # Thread-safety for prediction is generally okay in sklearn with read-only model
-                X_test = pd.DataFrame(
-                    [[packet_rate, unique_ports]],
-                    columns=["packet_rate", "unique_ports"]
-                )
+                # Protect prediction from concurrent training mutation
+                with self.lock:
+                    X_test = pd.DataFrame(
+                        [[packet_rate, unique_ports]],
+                        columns=["packet_rate", "unique_ports"]
+                    )
 
-                pred = self.model.predict(X_test)[0]
-                if pred == -1:
-                    score += 30
-                    explanation.append("ML Anomaly Detected")
+                    pred = self.model.predict(X_test)[0]
+                    if pred == -1:
+                        score += 30
+                        explanation.append("ML Anomaly Detected")
             except Exception:
                 pass
 
