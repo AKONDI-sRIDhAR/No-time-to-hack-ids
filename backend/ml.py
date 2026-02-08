@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import threading
 from datetime import datetime
 from sklearn.ensemble import IsolationForest
 
@@ -12,6 +13,7 @@ class Brain:
     def __init__(self):
         self.model = IsolationForest(contamination=0.05, random_state=42)
         self.is_fitted = False
+        self.lock = threading.Lock() # Fix: Thread safety for sklearn
         self.ensure_dataset()
 
     def ensure_dataset(self):
@@ -46,8 +48,11 @@ class Brain:
         try:
             if "packet_rate" in df.columns and "unique_ports" in df.columns:
                 X = df[["packet_rate", "unique_ports"]]
-                self.model.fit(X)
-                self.is_fitted = True
+                
+                with self.lock: # Fix: Lock during training
+                    self.model.fit(X)
+                    self.is_fitted = True
+                    
                 print("[ML] Model retrained with new data.")
         except Exception as e:
             print(f"[ML] Training failed: {e}")
@@ -74,7 +79,9 @@ class Brain:
                     columns=["packet_rate", "unique_ports"]
                 )
 
-                pred = self.model.predict(X_test)[0]
+                with self.lock: # Fix: Lock during prediction
+                    pred = self.model.predict(X_test)[0]
+                    
                 if pred == -1:
                     score += 30
                     explanation.append("ML Anomaly Detected")

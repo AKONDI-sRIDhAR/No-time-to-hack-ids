@@ -37,6 +37,9 @@ def system_loop():
     while True:
         try:
             threats, active_devices = start_ids_cycle(timeout=5)
+            # Use lock if accessing SYSTEM_STATE from multiple threads?
+            # Theoretically SYSTEM_STATE["devices"] is read by Flask. 
+            # Atomic assignment is mostly safe in Python, but let's be cleaner.
             SYSTEM_STATE["devices"] = active_devices
 
             # Handle Threats with Protection Ladder
@@ -96,10 +99,12 @@ def load_honeypot_logs():
                 reader = csv.reader(f)
                 header = next(reader, None)
                 if header:
-                    for row in reader:
+                    # Read all, then reverse
+                    rows = list(reader)
+                    for row in reversed(rows[-50:]): # Only last 50 reversed
                         if len(row) >= 6:
                             # timestamp, source_ip, service, username, password, metadata
-                            logs.insert(0, {
+                            logs.append({
                                 "timestamp": row[0],
                                 "ip": row[1],
                                 "service": row[2],
@@ -150,29 +155,33 @@ def manual_action(action, ip):
         if not info:
             return jsonify({"error": "Device not found"}), 404
         
-        if action == "isolate":
-            isolate(ip)
-            info["flags"]["isolated"] = True
-            info["trust_score"] = 0
-        elif action == "release":
-            release_attacker(ip)
-            info["flags"]["isolated"] = False
-            info["flags"]["redirected"] = False
-            info["flags"]["quarantined"] = False
-            info["trust_score"] = 50
-        elif action == "quarantine":
-            info["flags"]["quarantined"] = True
-            info["trust_score"] = 50
-        elif action == "redirect":
-            deploy_honeypot(ip)
-            info["flags"]["redirected"] = True
-            info["trust_score"] = 20
-            
-        save_devices()
+        try:
+            if action == "isolate":
+                isolate(ip)
+                info["flags"]["isolated"] = True
+                info["trust_score"] = 0
+            elif action == "release":
+                release_attacker(ip)
+                info["flags"]["isolated"] = False
+                info["flags"]["redirected"] = False
+                info["flags"]["quarantined"] = False
+                info["trust_score"] = 50
+            elif action == "quarantine":
+                info["flags"]["quarantined"] = True
+                info["trust_score"] = 50
+            elif action == "redirect":
+                deploy_honeypot(ip)
+                info["flags"]["redirected"] = True
+                info["trust_score"] = 20
+                
+            save_devices()
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         
     return jsonify({"status": "OK", "action": action, "ip": ip})
 
 if __name__ == "__main__":
     t = threading.Thread(target=system_loop, daemon=True)
     t.start()
-    app.run(host="0.0.0.0", port=5000)
+    # Explicitly set debug=False to avoid reloader issues in production loop
+    app.run(host="0.0.0.0", port=5000, debug=False)

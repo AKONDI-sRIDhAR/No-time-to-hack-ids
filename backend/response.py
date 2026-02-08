@@ -1,6 +1,7 @@
 import subprocess
 import os
 import zipfile
+import ipaddress
 from datetime import datetime
 
 # Configuration
@@ -13,17 +14,45 @@ LOG_FILE = os.path.join(BASE_DIR, "data", "iptables_actions.log")
 def run_cmd(cmd, ignore_error=False):
     """
     Run shell commands safely.
+    Returns True on success, False on failure (if ignored), or raises Exception.
     """
     if os.name == 'nt':
         print(f"[WINDOWS SIMULATION] Executing: {' '.join(cmd)}")
-        return
+        return True
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0 and not ignore_error:
-            print(f"[RESPONSE] Command failed: {' '.join(cmd)}\nError: {result.stderr.strip()}")
+        if result.returncode != 0:
+            if ignore_error:
+                return False
+            raise Exception(f"Command failed: {' '.join(cmd)}\nError: {result.stderr.strip()}")
+        return True
     except Exception as e:
+        if ignore_error:
+            print(f"[RESPONSE] Ignored error: {e}")
+            return False
         print(f"[RESPONSE] Command execution error: {e}")
+        raise
+
+def validate_ip(ip):
+    """
+    Validates that the input is a valid IPv4 address (not subnet, loopback, or multicast).
+    Returns the IP string if valid, else raises ValueError.
+    """
+    try:
+        obj = ipaddress.ip_address(ip)
+        if not isinstance(obj, ipaddress.IPv4Address):
+            raise ValueError(f"Not an IPv4 address: {ip}")
+        if obj.is_loopback:
+            raise ValueError(f"Loopback address rejected: {ip}")
+        if obj.is_multicast:
+            raise ValueError(f"Multicast address rejected: {ip}")
+        if obj.is_private and not str(obj).startswith("192.168."):
+             # Depending on policy, we might only allow the local subnet
+             pass
+        return str(obj)
+    except ValueError as e:
+        raise ValueError(f"Invalid IP address '{ip}': {e}") from e
 
 def log_action(action, details):
     t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -56,34 +85,46 @@ def deploy_honeypot(attacker_ip):
     """
     Redirect attacker traffic to Docker Honeypot ports
     """
-    print(f"[RESPONSE] Redirecting {attacker_ip} to Honeypot Grid")
-    log_action("REDIRECT", f"{attacker_ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
+    try:
+        ip = validate_ip(attacker_ip)
+    except ValueError as e:
+        print(f"[RESPONSE] Security Reject: {e}")
+        return
+
+    print(f"[RESPONSE] Redirecting {ip} to Honeypot Grid")
+    log_action("REDIRECT", f"{ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
 
     # SSH -> 2222
-    _delete_redirect_rule(attacker_ip, 22, HONEYPOT_SSH)
-    _add_redirect_rule(attacker_ip, 22, HONEYPOT_SSH)
+    _delete_redirect_rule(ip, 22, HONEYPOT_SSH)
+    _add_redirect_rule(ip, 22, HONEYPOT_SSH)
     
     # HTTP -> 8080
-    _delete_redirect_rule(attacker_ip, 80, HONEYPOT_HTTP)
-    _add_redirect_rule(attacker_ip, 80, HONEYPOT_HTTP)
+    _delete_redirect_rule(ip, 80, HONEYPOT_HTTP)
+    _add_redirect_rule(ip, 80, HONEYPOT_HTTP)
 
     # SMB -> 4445
-    _delete_redirect_rule(attacker_ip, 445, HONEYPOT_SMB)
-    _add_redirect_rule(attacker_ip, 445, HONEYPOT_SMB)
+    _delete_redirect_rule(ip, 445, HONEYPOT_SMB)
+    _add_redirect_rule(ip, 445, HONEYPOT_SMB)
 
 def isolate_attacker(attacker_ip):
     """
     Completely isolate attacker from other devices
     """
-    print(f"[RESPONSE] Isolating attacker {attacker_ip}")
-    log_action("ISOLATE", f"Dropped Traffic for {attacker_ip}")
+    try:
+        ip = validate_ip(attacker_ip)
+    except ValueError as e:
+        print(f"[RESPONSE] Security Reject: {e}")
+        return
+
+    print(f"[RESPONSE] Isolating attacker {ip}")
+    log_action("ISOLATE", f"Dropped Traffic for {ip}")
 
     # Ensure no duplicates by deleting first
-    run_cmd(["iptables", "-D", "FORWARD", "-s", attacker_ip, "-j", "DROP"], ignore_error=True)
-    run_cmd(["iptables", "-D", "FORWARD", "-d", attacker_ip, "-j", "DROP"], ignore_error=True)
+    run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"], ignore_error=True)
+    run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"], ignore_error=True)
 
-    run_cmd(["iptables", "-A", "FORWARD", "-s", attacker_ip, "-j", "DROP"])
-    run_cmd(["iptables", "-A", "FORWARD", "-d", attacker_ip, "-j", "DROP"])
+    run_cmd(["iptables", "-A", "FORWARD", "-s", ip, "-j", "DROP"])
+    run_cmd(["iptables", "-A", "FORWARD", "-d", ip, "-j", "DROP"])
     
     generate_evidence_zip()
 
@@ -126,6 +167,12 @@ def release_attacker(ip):
     """
     Remove isolation and redirection rules for an IP.
     """
+    try:
+        ip = validate_ip(ip)
+    except ValueError as e:
+        print(f"[RESPONSE] Security Reject: {e}")
+        return
+
     print(f"[RESPONSE] Releasing {ip}")
     log_action("RELEASE", f"Clearing rules for {ip}")
     
