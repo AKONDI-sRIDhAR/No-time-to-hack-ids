@@ -58,20 +58,16 @@ fi
 
 source venv/bin/activate
 
-echo "[+] Ensuring Python dependencies..."
-pip install --quiet flask flask-cors
+# ---- DEPENDENCY CHECK (NO INSTALL) ----
+echo "[+] Checking Python dependencies (Runtime Only)..."
+# We do NOT pip install here because AP mode is offline.
+# Dependencies must be pre-installed.
 
-# Dataset
+# Dataset handled by backend/ml.py
 mkdir -p data
-IDS_CSV="data/behavior.csv"
-
-if [ ! -f "$IDS_CSV" ]; then
-  echo "timestamp,ip,mac,packet_rate,port_count,unique_ports,scan_score,label" > "$IDS_CSV"
-  echo "[+] Created IDS dataset"
-fi
 
 # IMPORTANT: use `python`, not `python3`
-export FLASK_ENC=production
+export FLASK_ENV=production
 python main.py &
 IDS_PID=$!
 

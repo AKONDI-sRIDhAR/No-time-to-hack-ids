@@ -63,19 +63,18 @@ def get_dhcp_leases():
                     parts = line.split()
                     if len(parts) >= 3:
                         try:
-                            if "." in parts[2]: 
-                                expiry = float(parts[0])
-                                mac = parts[1]
-                                ip = parts[2]
-                                hostname = parts[3] if len(parts) > 3 else "unknown"
-                                
-                                # ONLY return valid leases
-                                if expiry > now:
-                                    leases[mac] = {
-                                        "ip": ip, 
-                                        "hostname": hostname,
-                                        "expiry": expiry
-                                    }
+                            expiry = float(parts[0])
+                            mac = parts[1]
+                            ip = parts[2]
+                            hostname = parts[3] if len(parts) > 3 else "unknown"
+
+                            # ONLY return valid leases
+                            if expiry > now:
+                                leases[mac] = {
+                                    "ip": ip,
+                                    "hostname": hostname,
+                                    "expiry": expiry
+                                }
                         except ValueError:
                             continue
         except Exception as e:
@@ -89,15 +88,20 @@ def get_arp_table():
         output = subprocess.check_output(["ip", "neigh"], text=True)
         for line in output.splitlines():
             parts = line.split()
-            if len(parts) >= 5:
-                # 192.168.10.x dev wlan0 lladdr AA:BB:CC... STALE/REACHABLE
-                ip = parts[0]
-                mac = parts[4]
-                state = parts[-1] 
-                if state not in ["FAILED", "INCOMPLETE"]:
-                    arp_entries[mac] = ip
-    except Exception:
-        pass
+            # 192.168.10.x dev wlan0 lladdr AA:BB:CC... STALE/REACHABLE
+            if "lladdr" in parts:
+                try:
+                    idx = parts.index("lladdr")
+                    if idx + 1 < len(parts):
+                        mac = parts[idx + 1]
+                        ip = parts[0]
+                        state = parts[-1]
+                        if state not in ["FAILED", "INCOMPLETE"]:
+                            arp_entries[mac] = ip
+                except ValueError:
+                    continue
+    except Exception as e:
+        print(f"[IDS] ARP Scan Failed: {e}")
     return arp_entries
 
 def get_wifi_associations():
@@ -118,8 +122,8 @@ def get_wifi_associations():
                 if len(parts) >= 2:
                     mac = parts[1]
                     associated_macs.add(mac)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[IDS] WiFi Dump Failed: {e}")
     return associated_macs
 
 def scan_network_state():
@@ -202,7 +206,7 @@ def process_packet(pkt):
             device_stats[mac]["ports"].add(pkt[TCP].dport)
 
 def update_trust_score(info, anomalous, packet_rate, unique_ports):
-    score = info["trust_score"]
+    score = info.get("trust_score", 50)
     if anomalous: score -= 20
     if unique_ports > 10: score -= 10
     if packet_rate > 50: score -= 5
@@ -284,11 +288,18 @@ def analyze_traffic():
                     })
 
             status = "ONLINE"
-            if is_offline: status = "OFFLINE"
-            elif info["flags"]["isolated"]: status = "CONTAINED"
-            elif info["flags"]["redirected"]: status = "DECEIVED"
-            elif info["flags"]["quarantined"]: status = "NEW/QUARANTINED"
-            elif label == 1: status = "SUSPICIOUS"
+            if is_offline:
+                status = "OFFLINE"
+            elif info["flags"]["isolated"]:
+                status = "CONTAINED"
+            elif info["flags"]["redirected"]:
+                status = "DECEIVED"
+            elif info["flags"]["quarantined"]:
+                status = "NEW/QUARANTINED"
+            elif label == 1:
+                status = "SUSPICIOUS"
+            elif stats["packets"] == 0:
+                status = "IDLE"
 
             active_devices.append({
                 "ip": ip,
@@ -297,7 +308,7 @@ def analyze_traffic():
                 "packets": stats["packets"],
                 "ports": unique_ports,
                 "status": status,
-                "trust_score": info["trust_score"],
+                "trust_score": info.get("trust_score", 50),
                 "last_seen": round(time_since_seen, 1),
                 "flags": info["flags"]
             })
@@ -312,8 +323,9 @@ def analyze_traffic():
                 threats = correlate_threats(threats)
                 for t in threats:
                      if "correlation" in t:
-                         known_devices[t["mac"]]["trust_score"] = t["trust"]
-                         known_devices[t["mac"]]["flags"] = t["flags"]
+                         if t["mac"] in known_devices:
+                             known_devices[t["mac"]]["trust_score"] = t["trust"]
+                             known_devices[t["mac"]]["flags"] = t["flags"]
         except ImportError:
             pass
 

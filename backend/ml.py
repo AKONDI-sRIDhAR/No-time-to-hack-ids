@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import threading
 from datetime import datetime
 from sklearn.ensemble import IsolationForest
 
@@ -12,20 +13,23 @@ class Brain:
     def __init__(self):
         self.model = IsolationForest(contamination=0.05, random_state=42)
         self.is_fitted = False
+        self.lock = threading.Lock()
         self.ensure_dataset()
 
     def ensure_dataset(self):
         os.makedirs(DATA_DIR, exist_ok=True)
         if not os.path.exists(DATASET):
             with open(DATASET, "w") as f:
-                f.write(
-                    "timestamp,ip,mac,packet_rate,packet_count,unique_ports,scan_score,label\n"
-                )
+                # Matches backend/ids.py logging order
+                f.write("timestamp,ip,mac,packet_rate,packets,unique_ports,score,label\n")
 
     def load_data(self):
         try:
-            # Check if file is empty (just header)
-            if os.path.getsize(DATASET) < 100: # Arbitrary small size check
+            if not os.path.exists(DATASET):
+                return pd.DataFrame()
+
+            # Check if file has enough data (more than just header)
+            if os.path.getsize(DATASET) < 50:
                 return pd.DataFrame()
                 
             df = pd.read_csv(DATASET)
@@ -35,21 +39,27 @@ class Brain:
             return pd.DataFrame()
 
     def train(self):
-        df = self.load_data()
-        
-        # Robust check for empty or insufficient data
-        if df.empty or len(df) < 10:
+        # Prevent concurrent training
+        if not self.lock.acquire(blocking=False):
             return
 
         try:
-            # Ensure numeric columns exist and are valid
-            if "packet_rate" in df.columns and "unique_ports" in df.columns:
-                X = df[["packet_rate", "unique_ports"]]
-                self.model.fit(X)
-                self.is_fitted = True
-                print("[ML] Model retrained with new data.")
-        except Exception as e:
-            print(f"[ML] Training failed: {e}")
+            df = self.load_data()
+
+            # Need enough data to train
+            if df.empty or len(df) < 10:
+                return
+
+            try:
+                if "packet_rate" in df.columns and "unique_ports" in df.columns:
+                    X = df[["packet_rate", "unique_ports"]]
+                    self.model.fit(X)
+                    self.is_fitted = True
+                    print("[ML] Model retrained with new data.")
+            except Exception as e:
+                print(f"[ML] Training failed: {e}")
+        finally:
+            self.lock.release()
 
     def analyze(self, packet_rate, unique_ports):
         """
@@ -68,6 +78,7 @@ class Brain:
 
         if self.is_fitted:
             try:
+                # Thread-safety for prediction is generally okay in sklearn with read-only model
                 X_test = pd.DataFrame(
                     [[packet_rate, unique_ports]],
                     columns=["packet_rate", "unique_ports"]
@@ -97,5 +108,6 @@ def is_anomalous(packet_rate, unique_ports):
 
 def log_event(row):
     brain.log_event(row)
+    # Train occasionally in background
     if np.random.rand() < 0.1:
-        brain.train()
+        threading.Thread(target=brain.train, daemon=True).start()
