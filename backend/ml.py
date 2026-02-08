@@ -18,14 +18,16 @@ class Brain:
         os.makedirs(DATA_DIR, exist_ok=True)
         if not os.path.exists(DATASET):
             with open(DATASET, "w") as f:
-                f.write(
-                    "timestamp,ip,mac,packet_rate,packet_count,unique_ports,scan_score,label\n"
-                )
+                # Matches backend/ids.py logging order
+                f.write("timestamp,ip,mac,packet_rate,packets,unique_ports,score,label\n")
 
     def load_data(self):
         try:
-            # Check if file is empty (just header)
-            if os.path.getsize(DATASET) < 100: # Arbitrary small size check
+            if not os.path.exists(DATASET):
+                return pd.DataFrame()
+
+            # Check if file has enough data (more than just header)
+            if os.path.getsize(DATASET) < 50:
                 return pd.DataFrame()
                 
             df = pd.read_csv(DATASET)
@@ -37,12 +39,11 @@ class Brain:
     def train(self):
         df = self.load_data()
         
-        # Robust check for empty or insufficient data
+        # Need enough data to train
         if df.empty or len(df) < 10:
             return
 
         try:
-            # Ensure numeric columns exist and are valid
             if "packet_rate" in df.columns and "unique_ports" in df.columns:
                 X = df[["packet_rate", "unique_ports"]]
                 self.model.fit(X)
@@ -97,5 +98,6 @@ def is_anomalous(packet_rate, unique_ports):
 
 def log_event(row):
     brain.log_event(row)
+    # Train occasionally
     if np.random.rand() < 0.1:
         brain.train()
