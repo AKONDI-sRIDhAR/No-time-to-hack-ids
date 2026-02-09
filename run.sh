@@ -50,40 +50,19 @@ echo "[✓] All honeypots active"
 echo "[+] Starting IDS brain..."
 cd "$BASE_DIR/backend"
 
-# ---- VIRTUAL ENV FIX (THIS IS THE KEY PART) ----
-if [ ! -d "venv" ]; then
-    echo "[+] Creating virtual environment..."
-    python3 -m venv venv
+echo "[+] Checking Python dependencies (offline safe)..."
+
+if ! python3 -c "import flask, flask_cors, pandas, sklearn, scapy, requests" 2>/dev/null; then
+    echo "[-] Missing required Python dependencies."
+    echo "[-] Install dependencies BEFORE entering AP mode:"
+    echo "    pip install -r requirements.txt"
+    exit 1
 fi
 
-source venv/bin/activate
-
-echo "[+] Ensuring Python dependencies..."
-pip install --quiet -r requirements.txt
+echo "[✓] Dependencies OK"
 
 # Dataset handled by backend/ml.py
 mkdir -p data
 
-# IMPORTANT: use `python`, not `python3`
-export FLASK_ENV=production
-python main.py &
-IDS_PID=$!
-
-# ---- 4. DASHBOARD SERVED VIA FLASK (Port 5000) ----
-echo "[+] Dashboard available at http://192.168.10.1:5000"
-
-# ---- STATUS ----
-echo ""
-echo "========================================="
-echo " SYSTEM STATUS: LIVE"
-echo "-----------------------------------------"
-echo " Gateway IP      : 192.168.10.1"
-echo " Dashboard       : http://192.168.10.1:5000"
-echo " SSH Honeypot    : 2222 (Cowrie)"
-echo " HTTP Decoy      : 8080"
-echo " SMB Honeypot    : 445"
-echo " IDS Dataset     : backend/data/behavior.csv"
-echo "========================================="
-echo ""
-
-wait $IDS_PID
+# Remove deprecated var and run safely
+python3 main.py
