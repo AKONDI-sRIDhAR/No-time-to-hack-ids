@@ -2,10 +2,11 @@ import threading
 import time
 import os
 import csv
+import subprocess
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from ids import start_ids_cycle, known_devices, save_devices, lock
-from response import deploy_honeypot, isolate, lockdown_network, release_attacker
+from response import deploy_honeypot, isolate, lockdown_network, release_attacker, quarantine_device, block_mac, disconnect_device
 import docker_honeypot
 import sys
 
@@ -138,6 +139,21 @@ def doomsday():
     lockdown_network()
     return jsonify({"status": "LOCKDOWN"})
 
+@app.route("/api/firewall")
+def get_firewall_status():
+    """
+    Returns current iptables rules for verification.
+    """
+    try:
+        if os.name == 'nt':
+             return jsonify({"nat": "Windows Simulation", "filter": "Windows Simulation"})
+             
+        nat = subprocess.check_output(["iptables", "-t", "nat", "-L", "-n", "--line-numbers"], text=True)
+        filter_ = subprocess.check_output(["iptables", "-L", "-n", "--line-numbers"], text=True)
+        return jsonify({"nat": nat, "filter": filter_})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/action/<action>/<ip>", methods=["POST"])
 def manual_action(action, ip):
     print(f"[API] Manual Action: {action} on {ip}")
@@ -146,37 +162,68 @@ def manual_action(action, ip):
         target_mac = None
         info = None
         
+        # normalized search
         for mac, data in known_devices.items():
             if data.get("ip") == ip:
                 target_mac = mac
                 info = data
                 break
                 
-        if not info:
+        # Release might happen even if device is gone (cleanup)
+        if not info and action not in ["release"]: 
             return jsonify({"error": "Device not found"}), 404
         
         try:
             if action == "isolate":
                 isolate(ip)
-                info["flags"]["isolated"] = True
-                info["trust_score"] = 0
-            elif action == "release":
-                release_attacker(ip)
-                info["flags"]["isolated"] = False
-                info["flags"]["redirected"] = False
-                info["flags"]["quarantined"] = False
-                info["trust_score"] = 50
+                if info:
+                    info["flags"]["isolated"] = True
+                    info["trust_score"] = 0
+            
+            elif action == "block":
+                if target_mac:
+                    block_mac(target_mac)
+                    if info:
+                        info["flags"]["isolated"] = True # effectively isolated
+                        info["trust_score"] = 0
+                else:
+                    return jsonify({"error": "MAC required for blocking"}), 400
+
+            elif action == "kick":
+                if target_mac:
+                    disconnect_device(target_mac)
+                else:
+                    return jsonify({"error": "MAC required for kick"}), 400
+
             elif action == "quarantine":
-                info["flags"]["quarantined"] = True
-                info["trust_score"] = 50
+                if target_mac:
+                    quarantine_device(target_mac, ip)
+                    if info:
+                        info["flags"]["quarantined"] = True
+                        info["trust_score"] = 30
+                else:
+                    return jsonify({"error": "MAC required for quarantine"}), 400
+
             elif action == "redirect":
                 deploy_honeypot(ip)
-                info["flags"]["redirected"] = True
-                info["trust_score"] = 20
+                if info:
+                    info["flags"]["redirected"] = True
+                    info["trust_score"] = 20
+
+            elif action == "release":
+                release_attacker(ip, mac=target_mac)
+                if info:
+                    info["flags"]["isolated"] = False
+                    info["flags"]["redirected"] = False
+                    info["flags"]["quarantined"] = False
+                    info["trust_score"] = 50
                 
             save_devices()
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            print(f"[API] Action failed: {e}")
+            return jsonify({"error": str(e)}), 500
         
     return jsonify({"status": "OK", "action": action, "ip": ip})
 

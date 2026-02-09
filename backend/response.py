@@ -47,9 +47,7 @@ def validate_ip(ip):
             raise ValueError(f"Loopback address rejected: {ip}")
         if obj.is_multicast:
             raise ValueError(f"Multicast address rejected: {ip}")
-        if obj.is_private and not str(obj).startswith("192.168."):
-             # Depending on policy, we might only allow the local subnet
-             pass
+        # Allow private IPs since this is an internal gateway
         return str(obj)
     except ValueError as e:
         raise ValueError(f"Invalid IP address '{ip}': {e}") from e
@@ -65,25 +63,43 @@ def log_action(action, details):
         print(f"[RESPONSE] Logging failed: {e}")
 
 def _delete_redirect_rule(ip, dport, to_port):
-    # Try to delete rule if it exists
+    """
+    Deletes a specific DNAT redirect rule in PREROUTING.
+    Explicitly targets 'wlan0' interface to intercept incoming traffic.
+    """
+    # 1. PREROUTING (Incoming on wlan0)
     cmd = [
         "iptables", "-t", "nat", "-D", "PREROUTING",
-        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-i", "wlan0", "-s", ip, "-p", "tcp", "--dport", str(dport),
         "-j", "REDIRECT", "--to-port", str(to_port)
     ]
     run_cmd(cmd, ignore_error=True)
+    
+    # 2. OUTPUT (Localhost testing) - Optional but good for verification
+    cmd_local = [
+        "iptables", "-t", "nat", "-D", "OUTPUT",
+        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-j", "REDIRECT", "--to-port", str(to_port)
+    ]
+    run_cmd(cmd_local, ignore_error=True)
 
 def _add_redirect_rule(ip, dport, to_port):
+    """
+    Adds a DNAT redirect rule to intercept attacker traffic.
+    MUST bind to interface 'wlan0' to catch traffic traversing the gateway.
+    """
+    # 1. PREROUTING (Real Attackers via WiFi)
     cmd = [
         "iptables", "-t", "nat", "-A", "PREROUTING",
-        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-i", "wlan0", "-s", ip, "-p", "tcp", "--dport", str(dport),
         "-j", "REDIRECT", "--to-port", str(to_port)
     ]
     run_cmd(cmd)
 
 def deploy_honeypot(attacker_ip):
     """
-    Redirect attacker traffic to Docker Honeypot ports
+    Redirect attacker traffic to Docker Honeypot ports.
+    Now correctly targets PREROUTING on wlan0.
     """
     try:
         ip = validate_ip(attacker_ip)
@@ -94,21 +110,24 @@ def deploy_honeypot(attacker_ip):
     print(f"[RESPONSE] Redirecting {ip} to Honeypot Grid")
     log_action("REDIRECT", f"{ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
 
+    # Enable forwarding just in case
+    run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], ignore_error=True)
+
     # SSH -> 2222
     _delete_redirect_rule(ip, 22, HONEYPOT_SSH)
     _add_redirect_rule(ip, 22, HONEYPOT_SSH)
     
-    # HTTP -> 8080
+    # HTTP -> 80
     _delete_redirect_rule(ip, 80, HONEYPOT_HTTP)
     _add_redirect_rule(ip, 80, HONEYPOT_HTTP)
 
-    # SMB -> 4445
+    # SMB -> 445
     _delete_redirect_rule(ip, 445, HONEYPOT_SMB)
     _add_redirect_rule(ip, 445, HONEYPOT_SMB)
 
 def isolate_attacker(attacker_ip):
     """
-    Completely isolate attacker from other devices
+    Completely isolate attacker from other devices using Forwarding DROP.
     """
     try:
         ip = validate_ip(attacker_ip)
@@ -119,14 +138,65 @@ def isolate_attacker(attacker_ip):
     print(f"[RESPONSE] Isolating attacker {ip}")
     log_action("ISOLATE", f"Dropped Traffic for {ip}")
 
-    # Ensure no duplicates by deleting first
+    # Ensure no duplicates
     run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"], ignore_error=True)
     run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"], ignore_error=True)
 
+    # Add Drop Rules
     run_cmd(["iptables", "-A", "FORWARD", "-s", ip, "-j", "DROP"])
     run_cmd(["iptables", "-A", "FORWARD", "-d", ip, "-j", "DROP"])
     
     generate_evidence_zip()
+
+def block_mac(mac):
+    """
+    Permanently block a MAC address using iptables MAC match.
+    """
+    if not mac or len(mac.split(":")) != 6:
+        print(f"[RESPONSE] Invalid MAC for blocking: {mac}")
+        return
+
+    print(f"[RESPONSE] BLOCKING MAC {mac}")
+    log_action("BLOCK", f"Permanent Block for {mac}")
+
+    # Clean duplicates
+    run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-j", "DROP"], ignore_error=True)
+    # Add Block
+    run_cmd(["iptables", "-A", "FORWARD", "-m", "mac", "--mac-source", mac, "-j", "DROP"])
+
+def unblock_mac(mac):
+    """
+    Remove MAC block.
+    """
+    print(f"[RESPONSE] UNBLOCKING MAC {mac}")
+    log_action("UNBLOCK", f"Released {mac}")
+    run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-j", "DROP"], ignore_error=True)
+
+def quarantine_device(mac, ip):
+    """
+    Quarantine Mode:
+    1. Redirect HTTP to Decoy (Honeypot)
+    2. Rate Limit Forwarding (Slow down scans)
+    """
+    print(f"[RESPONSE] QUARANTINING {ip} ({mac})")
+    log_action("QUARANTINE", f"Rate Limit + Redirect for {ip}")
+    
+    deploy_honeypot(ip) # Redirects traffic
+    
+    # Rate Limit
+    run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"], ignore_error=True)
+    run_cmd(["iptables", "-A", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"])
+
+
+def disconnect_device(mac):
+    """
+    Forcefully deauthenticate a station via hostapd/iw.
+    """
+    print(f"[RESPONSE] KICKING DEVICE {mac}")
+    log_action("KICK", f"Deauthenticated {mac}")
+    # iw dev wlan0 station del <MAC>
+    run_cmd(["iw", "dev", "wlan0", "station", "del", mac], ignore_error=True)
+
 
 def lockdown_network():
     """
@@ -140,47 +210,42 @@ def lockdown_network():
 isolate = isolate_attacker
 
 def generate_evidence_zip():
-    """
-    Archives behavior and honeypot logs into a ZIP file.
-    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_name = f"evidence_{timestamp}.zip"
-    
     data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     zip_path = os.path.join(data_dir, zip_name)
-    
     try:
         os.makedirs(data_dir, exist_ok=True)
         with zipfile.ZipFile(zip_path, 'w') as zf:
-            # Add files if they exist
             for f_name in ["behavior.csv", "honeypot.csv", "iptables_actions.log"]:
                 f_path = os.path.join(data_dir, f_name)
                 if os.path.exists(f_path):
                     zf.write(f_path, arcname=f_name)
-        print(f"[RESPONSE] Evidence generated: {zip_path}")
         return zip_path
-    except Exception as e:
-        print(f"[RESPONSE] Evidence generation failed: {e}")
+    except Exception:
         return None
 
-def release_attacker(ip):
+def release_attacker(ip, mac=None):
     """
-    Remove isolation and redirection rules for an IP.
+    Clear all penalties for an IP/MAC.
     """
     try:
         ip = validate_ip(ip)
-    except ValueError as e:
-        print(f"[RESPONSE] Security Reject: {e}")
-        return
+    except ValueError:
+        pass # Might be just cleaning up by MAC
 
-    print(f"[RESPONSE] Releasing {ip}")
-    log_action("RELEASE", f"Clearing rules for {ip}")
+    print(f"[RESPONSE] Releasing {ip} / {mac}")
+    log_action("RELEASE", f"Clearing rules for {ip}/{mac}")
     
-    # Delete Redirects
+    # IP Rules
     _delete_redirect_rule(ip, 22, HONEYPOT_SSH)
     _delete_redirect_rule(ip, 80, HONEYPOT_HTTP)
     _delete_redirect_rule(ip, 445, HONEYPOT_SMB)
-    
-    # Delete Drops
     run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"], ignore_error=True)
     run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"], ignore_error=True)
+    
+    # MAC Rules
+    if mac:
+        unblock_mac(mac)
+        # Remove Rate Limit
+        run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"], ignore_error=True)

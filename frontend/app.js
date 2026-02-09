@@ -1,16 +1,16 @@
 const API_BASE = "/api";
 
 function updateStatus() {
-    fetch(`${API_BASE}/status`)
-        .then(res => res.json())
-        .then(data => {
+    fetch(`${API_BASE}/devices`) // Check if backend is alive
+        .then(res => {
             const el = document.getElementById("system-status");
-            el.innerText = `● ${data.status}`;
-            if (data.status === "LOCKDOWN") {
-                el.style.color = "red";
-                el.style.borderColor = "red";
-                document.body.style.border = "5px solid red";
-            }
+            el.innerText = `● ONLINE`;
+            el.style.color = "#0f0";
+        })
+        .catch(err => {
+            const el = document.getElementById("system-status");
+            el.innerText = `● OFFLINE`;
+            el.style.color = "red";
         });
 }
 
@@ -20,7 +20,7 @@ function updateAlerts() {
         .then(data => {
             const container = document.getElementById("alerts-log");
             container.innerHTML = "";
-            const uniqueThreats = new Set();
+            let threatCount = 0;
 
             data.forEach(alert => {
                 const div = document.createElement("div");
@@ -32,11 +32,9 @@ function updateAlerts() {
                     <span class="action"> >> ${alert.action}</span>
                 `;
                 container.appendChild(div);
-                uniqueThreats.add(alert.ip);
+                threatCount++;
             });
-
-            // Update Threat Count
-            document.getElementById("threat-count").innerText = uniqueThreats.size;
+            // document.getElementById("threat-count").innerText = threatCount;
         });
 }
 
@@ -45,17 +43,19 @@ function updateHoneypot() {
         .then(res => res.json())
         .then(data => {
             const tbody = document.querySelector("#honeypot-table tbody");
-            tbody.innerHTML = "";
-            data.forEach(row => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td>${row.timestamp}</td>
-                    <td>${row.ip}</td>
-                    <td class="cred">${row.credential}</td>
-                    <td>${row.ua}</td>
-                `;
-                tbody.appendChild(tr);
-            });
+            if (tbody) {
+                tbody.innerHTML = "";
+                data.forEach(row => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${row.timestamp}</td>
+                        <td>${row.ip}</td>
+                        <td class="cred">${row.credential}</td>
+                        <td class="ua">${row.ua}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
         });
 }
 
@@ -65,50 +65,69 @@ function updateDevices() {
         .then(data => {
             const container = document.getElementById("devices-list");
             container.innerHTML = "";
+
             data.forEach(device => {
                 const div = document.createElement("div");
                 div.className = "asset-card";
 
-                // Styling based on Lifecycle State
-                let borderColor = "#333";
-                let statusColor = "lime";
+                // Status Coloring
+                let statusColor = "#ccc"; // Default/Offline
+                let borderColor = "#ccc";
 
                 if (device.status === "OFFLINE") {
                     statusColor = "#555";
                     div.style.opacity = "0.6";
-                } else if (device.status === "NEW/QUARANTINED") {
-                    statusColor = "yellow";
-                    borderColor = "yellow";
-                } else if (device.status === "SUSPICIOUS") {
+                }
+                else if (device.status === "IDLE") {
+                    statusColor = "#aaa";
+                    borderColor = "#aaa";
+                }
+                else if (device.status === "ONLINE") {
+                    statusColor = "lime";
+                    borderColor = "lime";
+                }
+                else if (device.status === "SUSPICIOUS") {
                     statusColor = "orange";
                     borderColor = "orange";
-                } else if (device.status === "DECEIVED") {
-                    statusColor = "#ff00ff"; // Purple for honeypot
-                    borderColor = "#ff00ff";
-                } else if (device.status === "CONTAINED") {
+                }
+                else if (device.status === "DECEIVED") {
+                    statusColor = "#d600d6"; // Purple
+                    borderColor = "#d600d6";
+                }
+                else if (device.status === "NEW/QUARANTINED" || device.status === "QUARANTINED") {
+                    statusColor = "yellow";
+                    borderColor = "yellow";
+                }
+                else if (device.status === "CONTAINED" || device.status === "BLOCKED") {
                     statusColor = "red";
                     borderColor = "red";
                 }
 
-                div.style.borderColor = borderColor;
+                div.style.borderLeft = `4px solid ${borderColor}`;
+
+                // Hostname handling
+                const displayName = (device.hostname && device.hostname !== "unknown") ? device.hostname : "Unknown Device";
+
+                let trust = device.trust_score !== undefined ? device.trust_score : '?';
 
                 div.innerHTML = `
-                    <div class="asset-ip">${device.ip}</div>
-                    <div style="font-size:0.7rem; color:#888;">${device.mac}</div>
-                    <div style="margin: 8px 0; font-size: 0.9rem; font-weight: bold; color: ${statusColor}">
-                         ${device.status}
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                        <span style="font-size:0.9rem; font-weight:bold; color:${statusColor}">${displayName}</span>
+                        <span style="font-size:0.75rem; color:#888;">${device.ip}</span>
                     </div>
-                    <div style="font-size:0.8rem;">
-                         Trust Score: <b>${device.trust_score !== undefined ? device.trust_score : '?'}</b>
+                    
+                    <div style="font-size:0.75rem; color:#666; margin-bottom:5px;">MAC: ${device.mac}</div>
+                    
+                    <div style="font-size:0.75rem; color:#aaa; margin-bottom:10px;">
+                        Trust: <b>${trust}%</b> | Status: <b>${device.status}</b>
                     </div>
-                    <div style="margin-top:5px; font-size:0.7rem; color:#aaa;">
-                        PKTS: ${device.packets} | PORTS: ${device.ports}
-                    </div>
-                    <div class="action-buttons" style="margin-top:8px; display:flex; gap:4px; justify-content:center;">
-                        <button class="btn-xs" style="background:#555;" onclick="triggerAction('release', '${device.ip}')">REL</button>
-                        <button class="btn-xs" style="background:orange;" onclick="triggerAction('quarantine', '${device.ip}')">Q</button>
-                        <button class="btn-xs" style="background:purple;" onclick="triggerAction('redirect', '${device.ip}')">DEC</button>
-                        <button class="btn-xs" style="background:red;" onclick="triggerAction('isolate', '${device.ip}')">BLOCK</button>
+
+                    <div class="action-buttons" style="display:flex; justify-content:space-between; gap:2px;">
+                        <button class="btn-xs" style="background:#555;" onclick="triggerAction('release', '${device.ip}')" title="Release">REL</button>
+                        <button class="btn-xs" style="background:purple;" onclick="triggerAction('redirect', '${device.ip}')" title="Deceive">DEC</button>
+                        <button class="btn-xs" style="background:orange;" onclick="triggerAction('quarantine', '${device.ip}')" title="Quarantine">Q</button>
+                        <button class="btn-xs" style="background:red;" onclick="triggerAction('block', '${device.ip}')" title="Block MAC">BLK</button>
+                        <button class="btn-xs" style="background:darkred;" onclick="triggerAction('kick', '${device.ip}')" title="Kick">KICK</button>
                     </div>
                 `;
                 container.appendChild(div);
@@ -117,29 +136,36 @@ function updateDevices() {
 }
 
 function triggerAction(action, ip) {
-    if (!confirm(`Confirm ${action.toUpperCase()} for ${ip}?`)) return;
+    if (!confirm(`CONFIRM: ${action.toUpperCase()} ${ip}?`)) return;
 
-    fetch(`/api/action/${action}/${ip}`, { method: "POST" })
-        .then(res => res.json())
-        .then(data => {
-            alert(`Action ${action} executed on ${ip}`);
-            updateDevices();
+    fetch(`${API_BASE}/action/${action}/${ip}`, { method: "POST" })
+        .then(async res => {
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Unknown Error");
+            }
+            return res.json();
         })
-        .catch(err => alert("Action failed: " + err));
+        .then(data => {
+            console.log(`Action ${action} succeeded on ${ip}`);
+            updateDevices(); // Refresh immediately
+        })
+        .catch(err => {
+            alert(`Action Failed: ${err.message}`);
+        });
 }
 
 function activateDoomsday() {
-    if (confirm("CONFIRM: ACTIVATE NETWORK LOCKDOWN? THIS WILL ISOLATE ALL DEVICES.")) {
+    if (confirm("⚠ WARNING: ACTIVATE NETWORK LOCKDOWN? ALL TRAFFIC WILL BE DROPPED.")) {
         fetch(`${API_BASE}/doomsday`, { method: "POST" })
             .then(res => res.json())
             .then(data => {
-                alert("DOOMSDAY PROTOCOL INITIATED");
-                updateStatus();
+                alert("NETWORK LOCKED DOWN");
             });
     }
 }
 
-// Loop
+// Poll Loop
 setInterval(() => {
     updateStatus();
     updateAlerts();
@@ -147,7 +173,7 @@ setInterval(() => {
     updateDevices();
 }, 2000);
 
-// Initial call
+// Init
 updateStatus();
 updateAlerts();
 updateHoneypot();
