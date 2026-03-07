@@ -15,21 +15,18 @@
         <h1>NO TIME TO HACK</h1>
         <span class="subtitle">AUTONOMOUS IOT DEFENSE SYSTEM</span>
       </div>
-      <div class="status-box" id="system-status">● NORMAL</div>
+      <div class="status-box" id="system-status">o NORMAL</div>
     </header>
 
     <main class="grid-layout">
-      <!-- Controls -->
       <section class="panel control-panel">
         <h2>COMMAND & CONTROL</h2>
         <div class="control-group">
-          <button class="btn warning" onclick="alert('Manual Override: Quarantine Initiated')">⚠ QUARANTINE ALL
-            NEW</button>
-          <button class="btn danger" onclick="activateDoomsday()">☢ ACTIVATE DOOMSDAY PROTOCOL</button>
+          <button class="btn warning" onclick="alert('Manual Override: Quarantine Initiated')">WARNING QUARANTINE ALL NEW</button>
+          <button class="btn danger" onclick="activateDoomsday()">ACTIVATE DOOMSDAY PROTOCOL</button>
         </div>
       </section>
 
-      <!-- Status -->
       <section class="panel status-panel">
         <h2>SYSTEM HEALTH</h2>
         <div id="health-metrics">
@@ -48,15 +45,11 @@
         </div>
       </section>
 
-      <!-- Intelligence Stream (Alerts) -->
       <section class="panel stream-panel">
         <h2>AGENT INTELLIGENCE STREAM</h2>
-        <div class="log-window" id="alerts-log">
-          <!-- JS will populate -->
-        </div>
+        <div class="log-window" id="alerts-log"></div>
       </section>
 
-      <!-- Deception Grid (Honeypot Logs) -->
       <section class="panel deception-panel">
         <h2>DECEPTION GRID // CAPTURES</h2>
         <div class="table-container">
@@ -65,23 +58,19 @@
               <tr>
                 <th>TIME</th>
                 <th>ATTACKER IP</th>
+                <th>SERVICE</th>
                 <th>CREDENTIALS</th>
                 <th>USER AGENT</th>
               </tr>
             </thead>
-            <tbody>
-              <!-- JS will populate -->
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
       </section>
 
-      <!-- Real-Time Asset Monitoring -->
       <section class="panel assets-panel">
         <h2>REAL-TIME ASSET MONITORING</h2>
-        <div class="assets-grid" id="devices-list">
-          <!-- JS will populate -->
-        </div>
+        <div class="assets-grid" id="devices-list"></div>
       </section>
     </main>
   </div>

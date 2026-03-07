@@ -23,6 +23,7 @@ SYSTEM_STATE = {
     "alerts": [],
     "honeypot_logs": []
 }
+STATE_LOCK = threading.RLock()
 
 def system_loop():
     print("[MAIN] System Loop Started")
@@ -38,10 +39,8 @@ def system_loop():
     while True:
         try:
             threats, active_devices = start_ids_cycle(timeout=5)
-            # Use lock if accessing SYSTEM_STATE from multiple threads?
-            # Theoretically SYSTEM_STATE["devices"] is read by Flask. 
-            # Atomic assignment is mostly safe in Python, but let's be cleaner.
-            SYSTEM_STATE["devices"] = active_devices
+            with STATE_LOCK:
+                SYSTEM_STATE["devices"] = active_devices
 
             # Handle Threats with Protection Ladder
             if threats:
@@ -78,8 +77,9 @@ def system_loop():
                         
                         # Avoid duplicate alerts at top
                         if not SYSTEM_STATE["alerts"] or SYSTEM_STATE["alerts"][0]["type"] != alert["type"] or SYSTEM_STATE["alerts"][0]["ip"] != ip:
-                            SYSTEM_STATE["alerts"].insert(0, alert)
-                            SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
+                            with STATE_LOCK:
+                                SYSTEM_STATE["alerts"].insert(0, alert)
+                                SYSTEM_STATE["alerts"] = SYSTEM_STATE["alerts"][:50]
                             print(f"[MAIN] Protection Active: {action_msg} for {ip} (Reason: {explanation})")
 
             # Parse logs less frequently? Or every cycle?
@@ -123,11 +123,13 @@ def index():
 
 @app.route("/api/devices")
 def get_devices():
-    return jsonify(SYSTEM_STATE["devices"])
+    with STATE_LOCK:
+        return jsonify(SYSTEM_STATE["devices"])
 
 @app.route("/api/alerts")
 def get_alerts():
-    return jsonify(SYSTEM_STATE["alerts"])
+    with STATE_LOCK:
+        return jsonify(SYSTEM_STATE["alerts"])
 
 @app.route("/api/honeypot")
 def get_honeypot():
@@ -135,7 +137,8 @@ def get_honeypot():
 
 @app.route("/api/doomsday", methods=["POST"])
 def doomsday():
-    SYSTEM_STATE["status"] = "LOCKDOWN"
+    with STATE_LOCK:
+        SYSTEM_STATE["status"] = "LOCKDOWN"
     lockdown_network()
     return jsonify({"status": "LOCKDOWN"})
 

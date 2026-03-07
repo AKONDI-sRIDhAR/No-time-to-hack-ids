@@ -59,10 +59,16 @@ class CorrelationEngine:
             
             # Simplified: Just check if IP exists in "recent" rows (last 50)
             recent = df.tail(50)
+            ip_col = None
             if "source_ip" in recent.columns:
-                for ip in recent["source_ip"].unique():
-                    count = len(recent[recent["source_ip"] == ip])
-                    activity[ip] = count
+                ip_col = "source_ip"
+            elif "ip" in recent.columns:
+                ip_col = "ip"
+
+            if ip_col:
+                for ip in recent[ip_col].dropna().unique():
+                    count = len(recent[recent[ip_col] == ip])
+                    activity[str(ip)] = count
                 
         except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
             print(f"[CORRELATION] Error: {e}")

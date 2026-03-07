@@ -1,8 +1,6 @@
 import pandas as pd
-import numpy as np
 import os
 import threading
-from datetime import datetime
 from sklearn.ensemble import IsolationForest
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +12,7 @@ class Brain:
         self.model = IsolationForest(contamination=0.05, random_state=42)
         self.is_fitted = False
         self.lock = threading.Lock() # Fix: Thread safety for sklearn
+        self.events_since_train = 0
         self.ensure_dataset()
 
     def ensure_dataset(self):
@@ -33,6 +32,11 @@ class Brain:
                 return pd.DataFrame()
                 
             df = pd.read_csv(DATASET)
+            # Backward compatibility with old headers.
+            if "packets" not in df.columns and "packet_count" in df.columns:
+                df["packets"] = df["packet_count"]
+            if "score" not in df.columns and "scan_score" in df.columns:
+                df["score"] = df["scan_score"]
             return df
         except Exception as e:
             print(f"[ML] Error loading data: {e}")
@@ -105,6 +109,8 @@ def is_anomalous(packet_rate, unique_ports):
 
 def log_event(row):
     brain.log_event(row)
-    # Train occasionally
-    if np.random.rand() < 0.1:
+    # Retrain on a deterministic cadence to avoid long stale windows.
+    brain.events_since_train += 1
+    if brain.events_since_train >= 20:
         brain.train()
+        brain.events_since_train = 0

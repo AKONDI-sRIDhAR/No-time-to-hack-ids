@@ -143,10 +143,28 @@ td.cred { color: #ffeb3b; }
 .asset-card {
     border: 1px solid #333;
     padding: 10px;
-    text-align: center;
+    text-align: left;
 }
 
 .asset-ip { font-weight: bold; color: white; }
+.asset-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.asset-name { font-size: 0.9rem; font-weight: bold; }
+.asset-meta { font-size: 0.75rem; color: #999; margin-bottom: 4px; }
+.asset-reason { font-size: 0.75rem; color: #ff9f1a; margin-bottom: 8px; min-height: 16px; }
+.action-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.btn-xs { border: 1px solid #222; color: #fff; cursor: pointer; padding: 4px 2px; font-size: 0.68rem; font-family: var(--font-mono); }
+.btn-release { background: #555; }
+.btn-redirect { background: #2563eb; }
+.btn-quarantine { background: #b45309; }
+.btn-isolate { background: #b91c1c; }
+
+.state-suspicious { border-left: 4px solid #ff9f1a; background: rgba(255, 159, 26, 0.08); }
+.state-isolated { border-left: 4px solid #ff003c; background: rgba(255, 0, 60, 0.10); }
+.state-quarantined { border-left: 4px solid #facc15; background: rgba(250, 204, 21, 0.08); }
+.state-deceived { border-left: 4px solid #34d399; }
+.state-online { border-left: 4px solid #00ff41; }
+.state-idle { border-left: 4px solid #888; }
+.state-offline { border-left: 4px solid #555; opacity: 0.75; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; }

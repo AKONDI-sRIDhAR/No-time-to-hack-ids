@@ -1,28 +1,41 @@
 const API_BASE = "/api";
 
+function statusView(status) {
+    const table = {
+        OFFLINE: { color: "#666", cls: "state-offline", icon: "O" },
+        IDLE: { color: "#9a9a9a", cls: "state-idle", icon: "I" },
+        ONLINE: { color: "#00ff41", cls: "state-online", icon: "N" },
+        SUSPICIOUS: { color: "#ff9f1a", cls: "state-suspicious", icon: "!" },
+        DECEIVED: { color: "#34d399", cls: "state-deceived", icon: "D" },
+        QUARANTINED: { color: "#facc15", cls: "state-quarantined", icon: "Q" },
+        ISOLATED: { color: "#ff003c", cls: "state-isolated", icon: "X" }
+    };
+    return table[status] || { color: "#ccc", cls: "", icon: "?" };
+}
+
 function updateStatus() {
-    fetch(`${API_BASE}/devices`) // Check if backend is alive
-        .then(res => {
+    fetch(`${API_BASE}/devices`)
+        .then(() => {
             const el = document.getElementById("system-status");
-            el.innerText = `● ONLINE`;
-            el.style.color = "#0f0";
+            el.innerText = "o ONLINE";
+            el.style.color = "#00ff41";
         })
-        .catch(err => {
+        .catch(() => {
             const el = document.getElementById("system-status");
-            el.innerText = `● OFFLINE`;
-            el.style.color = "red";
+            el.innerText = "o OFFLINE";
+            el.style.color = "#ff003c";
         });
 }
 
 function updateAlerts() {
     fetch(`${API_BASE}/alerts`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
             const container = document.getElementById("alerts-log");
             container.innerHTML = "";
             let threatCount = 0;
 
-            data.forEach(alert => {
+            data.forEach((alert) => {
                 const div = document.createElement("div");
                 div.className = "log-entry";
                 div.innerHTML = `
@@ -32,102 +45,67 @@ function updateAlerts() {
                     <span class="action"> >> ${alert.action}</span>
                 `;
                 container.appendChild(div);
-                threatCount++;
+                threatCount += 1;
             });
-            // document.getElementById("threat-count").innerText = threatCount;
+
+            const c = document.getElementById("threat-count");
+            if (c) c.innerText = String(threatCount);
         });
 }
 
 function updateHoneypot() {
     fetch(`${API_BASE}/honeypot`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
             const tbody = document.querySelector("#honeypot-table tbody");
-            if (tbody) {
-                tbody.innerHTML = "";
-                data.forEach(row => {
-                    const tr = document.createElement("tr");
-                    tr.innerHTML = `
-                        <td>${row.timestamp}</td>
-                        <td>${row.ip}</td>
-                        <td class="cred">${row.credential}</td>
-                        <td class="ua">${row.ua}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            }
+            if (!tbody) return;
+
+            tbody.innerHTML = "";
+            data.forEach((row) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${row.timestamp || ""}</td>
+                    <td>${row.ip || ""}</td>
+                    <td>${row.service || ""}</td>
+                    <td class="cred">${row.credential || ""}</td>
+                    <td class="ua">${row.ua || ""}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         });
 }
 
 function updateDevices() {
     fetch(`${API_BASE}/devices`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
             const container = document.getElementById("devices-list");
             container.innerHTML = "";
 
-            data.forEach(device => {
+            data.forEach((device) => {
                 const div = document.createElement("div");
-                div.className = "asset-card";
+                const view = statusView(device.status);
+                div.className = `asset-card ${view.cls}`;
 
-                // Status Coloring
-                let statusColor = "#ccc"; // Default/Offline
-                let borderColor = "#ccc";
-
-                if (device.status === "OFFLINE") {
-                    statusColor = "#555";
-                    div.style.opacity = "0.6";
-                }
-                else if (device.status === "IDLE") {
-                    statusColor = "#aaa";
-                    borderColor = "#aaa";
-                }
-                else if (device.status === "ONLINE") {
-                    statusColor = "lime";
-                    borderColor = "lime";
-                }
-                else if (device.status === "SUSPICIOUS") {
-                    statusColor = "orange";
-                    borderColor = "orange";
-                }
-                else if (device.status === "DECEIVED") {
-                    statusColor = "#d600d6"; // Purple
-                    borderColor = "#d600d6";
-                }
-                else if (device.status === "NEW/QUARANTINED" || device.status === "QUARANTINED") {
-                    statusColor = "yellow";
-                    borderColor = "yellow";
-                }
-                else if (device.status === "CONTAINED" || device.status === "BLOCKED") {
-                    statusColor = "red";
-                    borderColor = "red";
-                }
-
-                div.style.borderLeft = `4px solid ${borderColor}`;
-
-                // Hostname handling
-                const displayName = (device.hostname && device.hostname !== "unknown") ? device.hostname : "Unknown Device";
-
-                let trust = device.trust_score !== undefined ? device.trust_score : '?';
+                const displayName = (device.hostname && device.hostname !== "unknown")
+                    ? device.hostname
+                    : "Unknown Device";
+                const trust = device.trust_score !== undefined ? device.trust_score : "?";
+                const reason = device.reason ? device.reason : "-";
 
                 div.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                        <span style="font-size:0.9rem; font-weight:bold; color:${statusColor}">${displayName}</span>
-                        <span style="font-size:0.75rem; color:#888;">${device.ip}</span>
+                    <div class="asset-top">
+                        <span class="asset-name" style="color:${view.color}">[${view.icon}] ${displayName}</span>
+                        <span class="asset-ip">${device.ip}</span>
                     </div>
-                    
-                    <div style="font-size:0.75rem; color:#666; margin-bottom:5px;">MAC: ${device.mac}</div>
-                    
-                    <div style="font-size:0.75rem; color:#aaa; margin-bottom:10px;">
-                        Trust: <b>${trust}%</b> | Status: <b>${device.status}</b>
-                    </div>
-
-                    <div class="action-buttons" style="display:flex; justify-content:space-between; gap:2px;">
-                        <button class="btn-xs" style="background:#555;" onclick="triggerAction('release', '${device.ip}')" title="Release">REL</button>
-                        <button class="btn-xs" style="background:purple;" onclick="triggerAction('redirect', '${device.ip}')" title="Deceive">DEC</button>
-                        <button class="btn-xs" style="background:orange;" onclick="triggerAction('quarantine', '${device.ip}')" title="Quarantine">Q</button>
-                        <button class="btn-xs" style="background:red;" onclick="triggerAction('block', '${device.ip}')" title="Block MAC">BLK</button>
-                        <button class="btn-xs" style="background:darkred;" onclick="triggerAction('kick', '${device.ip}')" title="Kick">KICK</button>
+                    <div class="asset-meta">MAC: ${device.mac}</div>
+                    <div class="asset-meta">Trust: <b>${trust}%</b> | Status: <b>${device.status}</b></div>
+                    <div class="asset-reason">Attack: ${reason}</div>
+                    <div class="action-buttons">
+                        <button class="btn-xs btn-release" onclick="triggerAction('release', '${device.ip}')" title="Release">REL</button>
+                        <button class="btn-xs btn-redirect" onclick="triggerAction('redirect', '${device.ip}')" title="Redirect">REDIR</button>
+                        <button class="btn-xs btn-quarantine" onclick="triggerAction('quarantine', '${device.ip}')" title="Quarantine">QUAR</button>
+                        <button class="btn-xs btn-isolate" onclick="triggerAction('isolate', '${device.ip}')" title="Isolate">ISO</button>
                     </div>
                 `;
                 container.appendChild(div);
@@ -139,33 +117,32 @@ function triggerAction(action, ip) {
     if (!confirm(`CONFIRM: ${action.toUpperCase()} ${ip}?`)) return;
 
     fetch(`${API_BASE}/action/${action}/${ip}`, { method: "POST" })
-        .then(async res => {
+        .then(async (res) => {
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.error || "Unknown Error");
             }
             return res.json();
         })
-        .then(data => {
-            console.log(`Action ${action} succeeded on ${ip}`);
-            updateDevices(); // Refresh immediately
+        .then(() => {
+            updateDevices();
+            updateAlerts();
         })
-        .catch(err => {
+        .catch((err) => {
             alert(`Action Failed: ${err.message}`);
         });
 }
 
 function activateDoomsday() {
-    if (confirm("⚠ WARNING: ACTIVATE NETWORK LOCKDOWN? ALL TRAFFIC WILL BE DROPPED.")) {
+    if (confirm("WARNING: Activate lockdown? All forwarding traffic will be dropped.")) {
         fetch(`${API_BASE}/doomsday`, { method: "POST" })
-            .then(res => res.json())
-            .then(data => {
+            .then((res) => res.json())
+            .then(() => {
                 alert("NETWORK LOCKED DOWN");
             });
     }
 }
 
-// Poll Loop
 setInterval(() => {
     updateStatus();
     updateAlerts();
@@ -173,7 +150,6 @@ setInterval(() => {
     updateDevices();
 }, 2000);
 
-// Init
 updateStatus();
 updateAlerts();
 updateHoneypot();

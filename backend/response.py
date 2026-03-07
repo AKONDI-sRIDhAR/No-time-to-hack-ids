@@ -47,6 +47,8 @@ def validate_ip(ip):
             raise ValueError(f"Loopback address rejected: {ip}")
         if obj.is_multicast:
             raise ValueError(f"Multicast address rejected: {ip}")
+        if obj.is_unspecified:
+            raise ValueError(f"Unspecified address rejected: {ip}")
         # Allow private IPs since this is an internal gateway
         return str(obj)
     except ValueError as e:
@@ -184,8 +186,9 @@ def quarantine_device(mac, ip):
     deploy_honeypot(ip) # Redirects traffic
     
     # Rate Limit
-    run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"], ignore_error=True)
-    run_cmd(["iptables", "-A", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"])
+    if mac:
+        run_cmd(["iptables", "-D", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"], ignore_error=True)
+        run_cmd(["iptables", "-A", "FORWARD", "-m", "mac", "--mac-source", mac, "-m", "limit", "--limit", "5/min", "-j", "ACCEPT"])
 
 
 def disconnect_device(mac):
@@ -229,20 +232,23 @@ def release_attacker(ip, mac=None):
     """
     Clear all penalties for an IP/MAC.
     """
+    valid_ip = None
     try:
-        ip = validate_ip(ip)
+        valid_ip = validate_ip(ip)
     except ValueError:
-        pass # Might be just cleaning up by MAC
+        # Might be just cleaning up by MAC.
+        valid_ip = None
 
-    print(f"[RESPONSE] Releasing {ip} / {mac}")
-    log_action("RELEASE", f"Clearing rules for {ip}/{mac}")
+    print(f"[RESPONSE] Releasing {valid_ip or ip} / {mac}")
+    log_action("RELEASE", f"Clearing rules for {valid_ip or ip}/{mac}")
     
     # IP Rules
-    _delete_redirect_rule(ip, 22, HONEYPOT_SSH)
-    _delete_redirect_rule(ip, 80, HONEYPOT_HTTP)
-    _delete_redirect_rule(ip, 445, HONEYPOT_SMB)
-    run_cmd(["iptables", "-D", "FORWARD", "-s", ip, "-j", "DROP"], ignore_error=True)
-    run_cmd(["iptables", "-D", "FORWARD", "-d", ip, "-j", "DROP"], ignore_error=True)
+    if valid_ip:
+        _delete_redirect_rule(valid_ip, 22, HONEYPOT_SSH)
+        _delete_redirect_rule(valid_ip, 80, HONEYPOT_HTTP)
+        _delete_redirect_rule(valid_ip, 445, HONEYPOT_SMB)
+        run_cmd(["iptables", "-D", "FORWARD", "-s", valid_ip, "-j", "DROP"], ignore_error=True)
+        run_cmd(["iptables", "-D", "FORWARD", "-d", valid_ip, "-j", "DROP"], ignore_error=True)
     
     # MAC Rules
     if mac:

@@ -209,11 +209,36 @@ def process_packet(pkt):
 
 def update_trust_score(info, anomalous, packet_rate, unique_ports):
     score = info.get("trust_score", 50)
-    if anomalous: score -= 20
-    if unique_ports > 10: score -= 10
-    if packet_rate > 50: score -= 5
-    if not anomalous and unique_ports < 5: score += 1
+    if anomalous:
+        score -= 20
+    if unique_ports > 10:
+        score -= 10
+    if packet_rate > 50:
+        score -= 5
+    if not anomalous and unique_ports < 5:
+        score += 1
     return max(0, min(100, score))
+
+def _parse_score_value(score_text):
+    try:
+        return int(float(str(score_text).split(" ", 1)[0]))
+    except Exception:
+        return 0
+
+def _build_status(info, label, stats_packets, is_offline):
+    if is_offline:
+        return "OFFLINE"
+    if info["flags"]["isolated"]:
+        return "ISOLATED"
+    if label == 1:
+        return "SUSPICIOUS"
+    if info["flags"]["redirected"]:
+        return "DECEIVED"
+    if info["flags"]["quarantined"]:
+        return "QUARANTINED"
+    if stats_packets == 0:
+        return "IDLE"
+    return "ONLINE"
 
 def analyze_traffic():
     global START_TIME, device_stats
@@ -244,13 +269,11 @@ def analyze_traffic():
             
             label = 0
             score_val = 0
+            reasons = []
             
             if not is_offline:
                 anomalous, score_str = is_anomalous(packet_rate, unique_ports)
-                try:
-                    score_val = int(score_str.split(" ")[0])
-                except:
-                    score_val = 0
+                score_val = _parse_score_value(score_str)
                 label = 1 if anomalous else 0
 
                 new_trust = update_trust_score(info, anomalous, packet_rate, unique_ports)
@@ -259,8 +282,10 @@ def analyze_traffic():
                 if info["flags"]["quarantined"] and new_trust > 70 and (now - info["first_seen"] > 60):
                     known_devices[mac]["flags"]["quarantined"] = False
                 
-                if new_trust < 40: known_devices[mac]["flags"]["redirected"] = True
-                if new_trust < 20: known_devices[mac]["flags"]["isolated"] = True
+                if new_trust < 40:
+                    known_devices[mac]["flags"]["redirected"] = True
+                if new_trust < 20:
+                    known_devices[mac]["flags"]["isolated"] = True
 
                 row = [
                     time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -275,10 +300,14 @@ def analyze_traffic():
                 log_event(row)
                 
                 if anomalous or info["flags"]["redirected"]:
-                    reasons = []
-                    if anomalous: reasons.append(f"Anomaly ({score_val})")
-                    if packet_rate > 50: reasons.append("Flood")
-                    for port in list(stats["ports"])[:3]: reasons.append(f"Port {port}")
+                    if anomalous:
+                        reasons.append(f"Anomaly ({score_val})")
+                    if packet_rate > 50:
+                        reasons.append("High packet rate")
+                    if unique_ports > 20:
+                        reasons.append("Port scan")
+                    for port in list(stats["ports"])[:3]:
+                        reasons.append(f"Port {port}")
                     
                     threats.append({
                         "ip": ip,
@@ -286,22 +315,10 @@ def analyze_traffic():
                         "score": score_val,
                         "trust": new_trust,
                         "flags": info["flags"],
-                        "reason": ", ".join(reasons)
+                        "reason": ", ".join(reasons) if reasons else "Suspicious behavior"
                     })
 
-            status = "ONLINE"
-            if is_offline:
-                status = "OFFLINE"
-            elif info["flags"]["isolated"]:
-                status = "CONTAINED"
-            elif info["flags"]["redirected"]:
-                status = "DECEIVED"
-            elif info["flags"]["quarantined"]:
-                status = "NEW/QUARANTINED"
-            elif label == 1:
-                status = "SUSPICIOUS"
-            elif stats["packets"] == 0:
-                status = "IDLE"
+            status = _build_status(info, label, stats["packets"], is_offline)
 
             active_devices.append({
                 "ip": ip,
@@ -312,24 +329,33 @@ def analyze_traffic():
                 "status": status,
                 "trust_score": info.get("trust_score", 50),
                 "last_seen": round(time_since_seen, 1),
-                "flags": info["flags"]
+                "flags": info["flags"],
+                "reason": ", ".join(reasons) if reasons else ""
             })
 
-        device_stats = defaultdict(lambda: {"ports": set(), "packets": 0})
-        START_TIME = time.time()
-        save_devices()
-        
         try:
             if threats:
                 from correlation import correlate_threats
                 threats = correlate_threats(threats)
                 for t in threats:
-                     if "correlation" in t:
-                         if t["mac"] in known_devices:
-                             known_devices[t["mac"]]["trust_score"] = t["trust"]
-                             known_devices[t["mac"]]["flags"] = t["flags"]
+                    if t["mac"] in known_devices:
+                        known_devices[t["mac"]]["trust_score"] = t.get("trust", known_devices[t["mac"]]["trust_score"])
+                        known_devices[t["mac"]]["flags"] = t.get("flags", known_devices[t["mac"]]["flags"])
+                        if known_devices[t["mac"]]["trust_score"] < 20:
+                            known_devices[t["mac"]]["flags"]["isolated"] = True
+                        if known_devices[t["mac"]]["trust_score"] < 40:
+                            known_devices[t["mac"]]["flags"]["redirected"] = True
+                        if "correlation" in t:
+                            for d in active_devices:
+                                if d["mac"] == t["mac"]:
+                                    d["reason"] = t["correlation"]
+                                    d["status"] = _build_status(known_devices[t["mac"]], 1, d["packets"], d["last_seen"] > OFFLINE_THRESHOLD)
         except ImportError:
             pass
+
+        device_stats = defaultdict(lambda: {"ports": set(), "packets": 0})
+        START_TIME = time.time()
+        save_devices()
 
         return threats, active_devices
 
