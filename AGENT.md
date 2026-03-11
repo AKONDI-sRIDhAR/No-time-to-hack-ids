@@ -1,83 +1,93 @@
 # AGENT MEMORY - NO TIME TO HACK
 
-This file is the persistent handoff for future Codex sessions.  
-When a new session starts, read this file first and continue from here.
+This file is the persistent handoff for future Codex sessions.
+Read this first at the start of every new session.
 
 ## Project Identity
 - Name: `NO TIME TO HACK`
 - Type: Autonomous IoT IDS + Deception Gateway
-- Runtime context: Kali Linux AP mode on `wlan0`
-- Must stay offline-compatible: no internet dependency and no runtime pip installs
+- Runtime context: Kali Linux AP mode (Trinity detection flow preserved)
+- Constraint: Offline-compatible after installation (no runtime pip installs, no cloud/external APIs)
 
-## Required Startup Flow (Do Not Change)
-Run in this exact sequence:
-1. `./apmode.sh`
-2. `./dockerstart.sh`
-3. `./run.sh`
+## Current Startup Flow (Authoritative)
+Primary flow:
+1. `sudo ./installation.sh` (one-time after clone)
+2. `sudo ./no_time_to_hack.sh` (normal runtime command)
 
-No changes were made to these three scripts in this session.
+Backward compatibility:
+- `run.sh` exists as a compatibility wrapper and forwards to `no_time_to_hack.sh`.
+- `apmode.sh` and `dockerstart.sh` were removed as part of startup consolidation.
 
-## Core Rules
+## Core Rules (Do Not Break)
 - Device presence must use Trinity only:
   - `iw dev wlan0 station dump`
   - `dnsmasq.leases`
   - `ip neigh`
-- Trust lifecycle:
+- Trust lifecycle remains unchanged:
   - starts at `50`
   - `< 40` => redirect/deception
   - `< 20` => isolate
-- Keep thread safety (`RLock` for shared device/state structures, model lock for sklearn)
+- Do not alter enforcement semantics in `response.py` / iptables pathways.
 - Preserve data formats in:
   - `backend/data/behavior.csv`
   - `backend/data/honeypot.csv`
   - `backend/data/devices.json`
 
-## What Was Fixed In This Session
-- Fixed attack recognition pipeline to reliably escalate suspicious devices.
-- Fixed IDS score parsing and status normalization:
-  - unified statuses include `SUSPICIOUS`, `DECEIVED`, `QUARANTINED`, `ISOLATED`, `OFFLINE`, `IDLE`, `ONLINE`.
-- Ensured correlation updates are applied to device trust/flags before final persistence.
-- Added compatibility for behavior CSV legacy columns (`packet_count`, `scan_score`) in ML loader.
-- Changed ML retraining trigger to deterministic cadence (every 20 logged events).
-- Improved enforcement robustness:
-  - safer release path in `response.py`
-  - quarantine MAC rate-limit rule only applied when MAC exists
-  - IP validation rejects unspecified addresses
-- Added `STATE_LOCK` protection for API/system shared state in `main.py`.
-- Updated dashboard:
-  - clearer attack highlighting for suspicious/isolated devices
-  - shows device-level attack reason
-  - shows honeypot `service` column
-  - includes direct `ISO` action button
+## ML Architecture (Current)
+Layered detection in `backend/ml.py` now uses:
+1. Existing score logic + Isolation Forest behavior check (original model path preserved)
+2. Ensemble multiplier via `backend/ensemble_ml.py` with:
+  - rule-based port-scan/SYN-sweep signature logic
+  - XGBoost classifier (`backend/models/xgb_model.json`)
+  - LSTM sequence model (`backend/models/lstm_model.keras`)
 
-## Files Changed In This Session
-- `backend/ids.py`
-- `backend/ml.py`
-- `backend/correlation.py`
-- `backend/main.py`
-- `backend/response.py`
-- `frontend/app.js`
-- `frontend/index.html`
-- `frontend/style.css`
+Important behavior:
+- Ensemble does not replace base score logic; it multiplies/amplifies final anomaly score.
+- `backend/ml.py` includes a safe import fallback so IDS still runs if ensemble deps are missing (`get_ensemble_score -> 0`).
 
-## Validation Done
-- Ran backend unit tests from `backend/`:
-  - `python -m unittest test_ids.py`
-  - Result: `OK` (4 tests)
-- `compileall/py_compile` was blocked in this environment by `__pycache__` permission restrictions.
+## New/Changed Files In Current State
+Added:
+- `installation.sh`
+- `no_time_to_hack.sh`
+- `backend/train_ensemble.py`
+- `backend/ensemble_ml.py`
+- `backend/models/` (model artifacts generated at install/train time)
 
-## Git State At End Of Session
-- Changes were staged with `git add .`
-- Commit/push was not completed in-session due permission/escalation interruption
-- Next step if needed:
-  - `git commit -m "codex"`
-  - `git push`
+Updated:
+- `backend/ml.py` (ensemble multiplier hook + safe import fallback)
+- `run.sh` (compatibility wrapper now calls `bash no_time_to_hack.sh`)
+
+Removed:
+- `apmode.sh`
+- `dockerstart.sh`
+
+## Installation Script Responsibilities
+`installation.sh` performs:
+- dependency install (apt + pip)
+- AP config creation (`hostapd`, `dnsmasq`)
+- Docker image prep
+- ensemble training via `python3 backend/train_ensemble.py`
+
+No internet should be required during normal runtime after this completes.
+
+## Runtime Script Responsibilities
+`no_time_to_hack.sh` performs:
+- dynamic wireless interface detection (`iw dev`)
+- interface normalization to `wlan0` for Trinity compatibility
+- AP mode setup + `dnsmasq`/`hostapd` start
+- honeypot container start/ensure
+- launch of `python3 backend/main.py` (Flask + IDS loop)
+
+## Validation Notes
+- Compatibility regression was fixed by restoring `run.sh` wrapper.
+- Wrapper execution regression was fixed by invoking `no_time_to_hack.sh` through `bash` (does not require executable bit).
+- ML import regression was fixed by guarding ensemble import in `backend/ml.py`.
 
 ## Next Session Checklist For Codex
 1. Read this file first.
-2. Verify the three-step startup flow is unchanged.
-3. If user is testing attacks, focus on:
-  - `/api/devices`, `/api/alerts`, `/api/honeypot`
-  - trust score movement and status transitions
-  - iptables enforcement logs in `backend/data/iptables_actions.log`
-4. Keep fixes minimal and avoid introducing non-offline dependencies.
+2. Preserve Trinity-only detection and trust thresholds exactly.
+3. Keep edits minimal in core files (`ids.py`, `response.py`, `correlation.py`, `main.py`, `ml.py`).
+4. If touching startup, maintain both:
+  - primary: `installation.sh` + `no_time_to_hack.sh`
+  - compatibility: `run.sh`
+5. Keep offline runtime guarantees intact.
