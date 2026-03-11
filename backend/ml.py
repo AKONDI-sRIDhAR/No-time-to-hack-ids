@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import threading
 from sklearn.ensemble import IsolationForest
+from ensemble_ml import get_ensemble_score
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -91,6 +92,11 @@ class Brain:
                     explanation.append("ML Anomaly Detected")
             except Exception:
                 pass
+
+        ensemble_score = get_ensemble_score(packet_rate, unique_ports)
+        score = min(100, int(score * (1 + (ensemble_score / 100.0))))
+        if ensemble_score >= 60:
+            explanation.append("Port Scan Detected (Ensemble ML)")
 
         is_anomalous = score >= 50
         return is_anomalous, f"{score} ({', '.join(explanation)})"
