@@ -2,7 +2,11 @@ import pandas as pd
 import os
 import threading
 from sklearn.ensemble import IsolationForest
-from ensemble_ml import get_ensemble_score
+try:
+    from ensemble_ml import get_ensemble_score
+except Exception:
+    def get_ensemble_score(packet_rate, unique_ports):
+        return 0
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
