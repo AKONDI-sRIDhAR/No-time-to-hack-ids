@@ -272,8 +272,7 @@ def analyze_traffic():
             reasons = []
             
             if not is_offline:
-                anomalous, score_str = is_anomalous(packet_rate, unique_ports)
-                score_val = _parse_score_value(score_str)
+                anomalous, score_str, score_val, ensemble_score = is_anomalous(packet_rate, unique_ports, stats["packets"])
                 label = 1 if anomalous else 0
 
                 new_trust = update_trust_score(info, anomalous, packet_rate, unique_ports)
@@ -285,6 +284,10 @@ def analyze_traffic():
                 if new_trust < 40:
                     known_devices[mac]["flags"]["redirected"] = True
                 if new_trust < 20:
+                    known_devices[mac]["flags"]["isolated"] = True
+                if ensemble_score >= 80:
+                    known_devices[mac]["flags"]["redirected"] = True
+                if ensemble_score >= 92:
                     known_devices[mac]["flags"]["isolated"] = True
 
                 row = [
@@ -302,6 +305,8 @@ def analyze_traffic():
                 if anomalous or info["flags"]["redirected"]:
                     if anomalous:
                         reasons.append(f"Anomaly ({score_val})")
+                    if ensemble_score >= 60:
+                        reasons.append(f"Ensemble ({ensemble_score})")
                     if packet_rate > 50:
                         reasons.append("High packet rate")
                     if unique_ports > 20:

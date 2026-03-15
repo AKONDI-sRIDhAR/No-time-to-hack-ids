@@ -7,7 +7,7 @@ from datetime import datetime
 # Configuration
 HONEYPOT_SSH = "2222"
 HONEYPOT_HTTP = "8080"
-HONEYPOT_SMB = "4445"
+HONEYPOT_SMB = "445"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "data", "iptables_actions.log")
 
@@ -98,6 +98,13 @@ def _add_redirect_rule(ip, dport, to_port):
     ]
     run_cmd(cmd)
 
+    cmd_local = [
+        "iptables", "-t", "nat", "-A", "OUTPUT",
+        "-s", ip, "-p", "tcp", "--dport", str(dport),
+        "-j", "REDIRECT", "--to-port", str(to_port)
+    ]
+    run_cmd(cmd_local, ignore_error=True)
+
 def deploy_honeypot(attacker_ip):
     """
     Redirect attacker traffic to Docker Honeypot ports.
@@ -110,7 +117,7 @@ def deploy_honeypot(attacker_ip):
         return
 
     print(f"[RESPONSE] Redirecting {ip} to Honeypot Grid")
-    log_action("REDIRECT", f"{ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:4445)")
+    log_action("REDIRECT", f"{ip} -> Honeypot Grid (SSH:2222, HTTP:8080, SMB:445)")
 
     # Enable forwarding just in case
     run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], ignore_error=True)

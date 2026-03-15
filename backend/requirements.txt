@@ -4,3 +4,7 @@ scikit-learn
 scapy
 requests
 flask-cors
+joblib
+numpy
+xgboost
+tensorflow

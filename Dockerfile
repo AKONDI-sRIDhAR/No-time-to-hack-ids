@@ -1,37 +1,55 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COWRIE_HOME=/opt/cowrie
 
 RUN apt-get update && apt-get install -y \
     git \
+    samba \
+    smbclient \
+    procps \
     iproute2 \
     net-tools \
-    procps \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash ntth
 
-WORKDIR /home/ntth
-RUN git clone https://github.com/cowrie/cowrie.git
+WORKDIR /opt
+RUN git clone --depth=1 https://github.com/cowrie/cowrie.git "${COWRIE_HOME}"
 
-WORKDIR /home/ntth/cowrie
-
+WORKDIR ${COWRIE_HOME}
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Runtime directories REQUIRED by Cowrie
-RUN mkdir -p var/log/cowrie \
-    var/lib/cowrie \
-    var/run/cowrie
+RUN mkdir -p \
+    ${COWRIE_HOME}/var/log/cowrie \
+    ${COWRIE_HOME}/var/lib/cowrie \
+    ${COWRIE_HOME}/var/run/cowrie \
+    /srv/public \
+    /var/log/samba \
+    /opt/honeypot
 
-# Custom Config
-COPY backend/cowrie.cfg etc/cowrie.cfg
+COPY backend/cowrie.cfg ${COWRIE_HOME}/etc/cowrie.cfg
+COPY backend/smb.conf /etc/samba/smb.conf
+COPY backend/fake_admin.py /opt/honeypot/fake_admin.py
+COPY backend/honeypot_entrypoint.sh /opt/honeypot/entrypoint.sh
 
-# Listen on all interfaces
-RUN sed -i 's/^# listen_endpoints/listen_endpoints/' etc/cowrie.cfg && \
-    sed -i 's/127.0.0.1/0.0.0.0/' etc/cowrie.cfg
+RUN printf '%s\n' \
+    'Quarterly planning workbook' \
+    'VPN inventory' \
+    'Edge credentials rotation schedule' \
+    > /srv/public/roadmap.txt && \
+    printf '%s\n' \
+    'username,password,role' \
+    'admin,Summer2024!,superuser' \
+    'operator,Welcome123,ops' \
+    > /srv/public/users.csv && \
+    chmod 644 /srv/public/roadmap.txt /srv/public/users.csv && \
+    chown -R ntth:ntth ${COWRIE_HOME} && \
+    chmod +x /opt/honeypot/entrypoint.sh && \
+    touch /var/log/samba/log.smbd
 
-RUN chown -R ntth:ntth /home/ntth/cowrie
+EXPOSE 2222 8080 445
 
-USER ntth
-EXPOSE 2222
-
-CMD ["bin/cowrie", "start", "-n"]
+CMD ["/opt/honeypot/entrypoint.sh"]
